@@ -1,0 +1,230 @@
+# Data Visualization (& Cleanup) Cheatsheet
+
+## Gene Expression Analysis
+
+------------------------------------------------------------------------
+
+```{r}
+
+
+markerList = list(
+  "Exhaution" = c("LAG-3", "PD-1", "TIM-3", "TCF-1", "TIGIT", "FLI-1", "ITIM"),
+  
+  "TCell" = c("CD3D", "CD3E"),
+  
+  "Treg" = c("FOXP3"),
+  
+  "BCell" = c("CD19","CD79A")
+)
+
+Features(sample)[Features(sample) %like% "IG"]
+
+```
+
+### aaa
+
+```{r}
+
+keyref <- mapIds(org.Mm.eg.db, keys=counts@Dimnames[[1]], column="SYMBOL", keytype="ENSEMBL")
+```
+
+## Analyzing Dimension Reduction
+
+------------------------------------------------------------------------
+
+```{r}
+
+
+
+# --== Analyze Principal Components ==--
+
+# Determine "dimensionality" by visualizing amount of change 
+ElbowPlot(samples)
+# We might need to avoid using the first 1-2 PCs that are generated as the extreme amount of variation they contain is likely due to differences within the cell cycle
+VizDimLoadings(samples, dims = 1:2, reduction = "pca")
+
+
+# Search for specific features (genes) present
+Features(samples)
+Features(samples)[Features(samples) %like% "PD"]
+
+
+# Check For Batch Effect
+DimPlot(samples, reduction="integrated.cca", group.by="sample")
+
+# very useful and informative visualization :D
+DimHeatmap(mergedSamples, dims = 1:2, cells = 500, balanced = TRUE)
+
+# Generate Feature Plot
+FeaturePlot(samples, cols=c("grey", "red"),
+            reduction = "umap",
+            features = markerList$Exhaution)
+
+
+# Generate Dimension Reduction Plot
+DimPlot(object = samples, reduction = "umap", label = TRUE, pt.size = 0.5)
+
+DimPlot(object = samples, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+
+
+
+
+
+
+VlnPlot(mergedSamples, features = c("NKG7", "PF4"), log = TRUE)
+```
+
+## Wrangling Cluster Annotations & Markers
+
+------------------------------------------------------------------------
+
+```{r}
+
+# View All Cluster (Idents) Names
+levels(samples)
+
+
+# Rename a specific cluster
+samples <- RenameIdents(samples, '4'="Treg Cells")
+
+
+```
+
+```{r}
+
+# --== FindAllMarkers() ==--
+
+identMarkers <- FindAllMarkers(samples, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+
+
+# --== Displaying Markers ==--
+
+# Print top n markers for each cluster
+topMarkers <- identMarkers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+View(topMarkers)
+
+
+print(samples[["pca"]], dims = 3:20, nfeatures = 30)
+
+
+# Remember that clusters /= PCs
+# Markers are identified PER CLUSTER
+
+
+Idents(samples)
+```
+
+## Creating Subsets
+
+------------------------------------------------------------------------
+
+```{r}
+
+
+# --== Subset By Cluster ==--
+tSubset <- subset(samples, idents = c("T Cells", "CD4 T Cells", "CD8 T Cells"))
+
+length(Cells(tSubset))
+
+
+# --== Subset By Genes ==--
+
+length(WhichCells(tSubset, expression = TIGIT > 1))
+
+
+
+exhaustSubset <- subset(tSubset, cells = WhichCells(tSubset, expression = TIGIT > 1))
+healthySubset <- subset(tSubset, cells = WhichCells(tSubset, expression = TIGIT < 1))
+
+#validate
+length(Cells(healthySubset))
+length(WhichCells(healthySubset, expression = TIGIT > 1))
+
+
+# violin plot of expression
+tSubsetMerge <- merge(exhaustSubset, healthySubset)
+
+tSubsetMerge$dataset <- c(
+  rep("Exhausted", ncol(seurat_obj1@assays$RNA)), 
+  rep("Healthy", ncol(seurat_obj2@assays$RNA)))
+
+
+VlnPlot(exhaustSubset, features = genesOfInterest, log = TRUE, 
+        pt.size = 0.1)
+VlnPlot(healthySubset, features = genesOfInterest, log = TRUE, 
+        pt.size = 0.1)
+
+
+# Check subset size
+print(nrow(cells_with_gene_expression))
+
+
+
+exhaustSubset <- subset(seurat_obj, subset = RNA, gene_symbol = gene_of_interest)
+
+```
+
+## Auto-Analysis Functions
+
+------------------------------------------------------------------------
+
+### dataVis()
+
+-   **Input:** Seurat Object
+
+-   **Output:** None
+
+```{r}
+dataVis <- function(genesOfInterest){
+  
+  VlnPlot(pbmc, features = c("NKG7", "PF4"), slot = "counts", log = TRUE)
+  
+  out1 <- x + y
+  out2 <- t + v
+  
+  
+  if (is.null(genesOfInterest)) {
+      cat("target genes provided")
+  }
+  
+}
+
+
+fun <- function(){
+  x <- readline("What is the value of x? ")  
+  y <- readline("What is the value of y? ")
+  t <- readline("What are the T values? ")
+  v <- readline("What are the V values? ")
+  
+  x <- as.numeric(unlist(strsplit(x, ",")))
+  y <- as.numeric(unlist(strsplit(y, ",")))
+  t <- as.numeric(unlist(strsplit(t, ",")))
+  v <- as.numeric(unlist(strsplit(v, ",")))
+  
+  out1 <- x + y
+  out2 <- t + v
+  
+  return(list(out1, out2))
+  
+}
+
+```
+
+### annotateCellTypes()
+
+```{r}
+# --== annotateCellTypes() ==--
+annotateCellTypes <- function(seuratObject, markerGenes) {
+  
+  
+  
+  
+  
+  return(figure)
+}
+
+
+
+
+```
