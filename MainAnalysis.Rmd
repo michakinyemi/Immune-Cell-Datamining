@@ -1,0 +1,213 @@
+---
+title: My Document
+output: html_document
+# params:
+#   year: 2018
+---
+
+Consider using yaml metadata as parameter editor?
+
+### Resources
+
+-   [(Seurat) Guided Clustering Tutorial](https://satijalab.org/seurat/articles/pbmc3k_tutorial.html)
+
+-   [(Elixir Excelerate) Single RNA-seq data analysis with R (Elixir Excelerate)](https://nbisweden.github.io/excelerate-scRNAseq/session-qc/Quality_control.html)
+
+-   [(Harvard) Introduction to Bioinformatics and Computational Biology](https://liulab-dfci.github.io/bioinfo-combio/)
+
+# Differential Expression Analysis
+
+## 1. Importing Datasets
+
+### 1.1) Pre-Analysis Setup
+
+------------------------------------------------------------------------
+
+```         
+```
+
+-   GEO Series (GSE): A collection of related samples that share a common experimental design (or belong to the same study)
+
+-   GEO Sample (GSM): Individual samples with a dataset (Ex: a specific cell type, tissue, or experimental condition)
+
+-   [Gene Name Symbols]{.underline}: Gene names in certain datasets contain characters unsupported by the Seurat pipeline, we need to find a way to rename them all to clean up the data without risking data integrity (Ex: creating duplicate genes)
+
+    -   Current workaround is to use ENSEMBL Gene IDs if the dataset provides them
+    -   We could try to reconvert the gene IDs to their names using a different tool rather than trying to tweak the provided ones
+
+### 1.2) Parsing Datasets
+
+------------------------------------------------------------------------
+
+```{r generateSampleList}
+source("HelperFunctions.R")
+
+dataID = "GSE139829"
+
+```
+
+Make sure understand where each sample within a dataset is coming from and the properties associated with it (disease state, treatment state, collection method/location)
+
+-   Ex: A paper might state that "eight primary and three metastatic samples" were collected, a properties that would need to be tied to each sample
+
+**10X Genomics Standard Format:**
+
+-   (a folder per sample containing: matrix, features, and barcodes)
+
+```{r}
+
+sampleList <- generateSampleList(dataID)
+
+Features(testSample)[Features(testSample) %like% "IG"]
+```
+
+### 1.3) Quality Control (QC)
+
+------------------------------------------------------------------------
+
+*If you are working with an already filtered dataset then you can likely skip this section.*
+
+```{r FilteringThresholds}
+
+
+```
+
+**The main filtering criteria are:**
+
+-   [nCount_RNA]{.underline} *(Total RNA Counts)*: The number of RNA molecule counts for each cell. It represents the total number of reads or transcript molecules detected in a given cell
+-   [nFeature_RNA]{.underline} *(Number of Detected Genes or Features)*: The count of unique genes or features (transcripts) that have been detected in each cell.
+-   [percent_MT]{.underline} *(Mitochondrial Gene Expression)*: ?
+-   [percent_RB]{.underline} *(Ribosomal Gene Expression)*: ?
+
+[*See here*](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4758103/) *for more information on commonly used quality filters.*
+
+### 1.4) Merging Samples
+
+------------------------------------------------------------------------
+
+TODO: Understand implications of running NormalizeData() & ScaleData() before or after merging the samples
+
+-   Historically, the ScaleData() function has run into memory issues when called before a sample has been filtered.
+
+```{r}
+# cell ids are added as a prefix ("id_[barcode]") to each read
+# to add more than two seurat objects/samples we can pass a vector of more samples to the y parameter of the function (Ex: y=c(sample2, sample3, sample4))
+
+
+```
+
+## 2. Performing Dimension Reduction
+
+```{r ReductionParamters}
+
+```
+
+### 2.1) Dimension Reduction
+
+------------------------------------------------------------------------
+
+```{r}
+
+
+# Calculate the subset of features that exhibit high cell-to-cell variation in the dataset (i.e. they are highly expressed in some cells and lowly expressed in others)
+# It is used by the RunPCA() function rather than all of the genes to avoid redundant comparisons (such as expression of fundamental cell cycle genes?)
+mergedSamples <- FindVariableFeatures(mergedSamples)
+mergedSamples <- RunPCA(mergedSamples, npcs = NUM_PCS)
+
+# The "dims" parameter refers to which of the generated PCs should be used
+#   - Generally, the first few principal components generated (which are the "most 
+#     notable variances"), are often associated with the cell cycle (assuming asynchronous
+#     growth/division)
+
+mergedSamples <- FindNeighbors(mergedSamples, dims = 1:30)
+mergedSamples <- FindClusters(mergedSamples)
+mergedSamples <- RunUMAP(mergedSamples, dims = 1:30)
+
+# mergedSamples <- RunTSNE(mergedSamples, dims = 1:30)
+# can't handle duplicates (UMAP can)
+
+saveRDS(mergedSamples, file = paste("datasets/",dataID,"/mergedSamples.rds", sep=""))
+```
+
+### 2.2) Visualizing Reduction Map
+
+------------------------------------------------------------------------
+
+Tweaking which PCs (`dims` parameter) are being used is a crucial step in filtering out irrelevant variances (Ex: Cell cycle genes)
+
+```{r}
+
+# dims (dimensions) = PCs (Principal Components)
+# nfeatures = # of associated genes to display (negative & positive)
+print(mergedSamples[["pca"]], dims = 1:30, nfeatures = 30)
+
+# group.by = c("orig.ident")
+
+#Before we even proceed to the clustering step, we can highlight cells on the UMAP plot (or t-SNE) with positive expression of specific genes:
+```
+
+### 2.3) Perform Main Clustering
+
+------------------------------------------------------------------------
+
+Before
+
+TODO: Give brief overview of dimension reducton & explain differences between PCA vs tSNE vs UMAP
+
+### 2.4) Annotating Cell Types
+
+------------------------------------------------------------------------
+
+```{r}
+
+
+markersData = yaml.load_file("CellMarkers.yml")
+
+new.cluster.ids <- c("Naive CD4 T", "CD14+ Mono", "Memory CD4 T", "B", "CD8 T", "FCGR3A+ Mono", "NK", "DC", "Platelet","a","b","c","d","e","f","g")
+
+names(new.cluster.ids) <- levels(mergedSamples)
+
+mergedSamples <- RenameIdents(mergedSamples, new.cluster.ids)
+
+```
+
+------------------------------------------------------------------------
+
+## 3. Expression Analysis
+
+```{r}
+VlnPlot(pbmc, features = c("NKG7", "PF4"), slot = "counts", log = TRUE)
+```
+
+(See Obsidian notes for future plans)
+
+### Quick Notes
+
+If we are only going to use a handful of databases, we might want to separate whatever automated query/discovery system we develop for each database.
+
+It is unlikely that the information each database stores for entries will be the same
+
+-   We can use marker genes (those that are highly associated with specific cell types) to differentiate
+
+-   Papers involving sequencing data analysis often require you to include the steps you had taken along the way (filtering process, etc.)
+
+    -   Seurat does a lot of the heavy lifting by storing data transformations
+    -   We could still make this a part of the script's job by saving the most relevant parameters & results (Ex: \# of clusters) and generating an associated output file
+
+-   Global Assignment (within functions): `variable <<- data`
+
+-   Might want to implement more consistent code formatting (i.e. script parameters in all caps: "NUM_PCS", "DATA_ID", etc) to be easily distinguishable from script-level code
+
+-   
+
+------------------------------------------------------------------------
+
+# Future Plans
+
+-   Sub Cluster Discovery Pipeline
+
+    -   Support "zooming in" on clusters we had generated to further investigate
+
+**Questions:**
+
+-   Most documentation/papers suggest using high [% mitochondrial gene expression as a filtering metric]{.underline}. How does this impact the study of genes such as **TFAM** (Mitochondrial Transcription Factor A)?

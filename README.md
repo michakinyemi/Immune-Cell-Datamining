@@ -1,23 +1,63 @@
-# Immune-Cell-Datamining
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
 
+# Immune Cell Datamining
 
-Parsing File:
-Naming Sample: 
-Rename Sample? [Y/n] 
+------------------------------------------------------------------------
 
+This pipeline currently only supports scRNA-Seq datasets in the 10X
+genomics format.
 
---== [Assign Cell Type] ==--
-(1) metastatic
-(2) primary
-Type (Optional): 
+All pre-processing steps are fully automated, with hands-on analysis
+steps being included in the `DataVisualization.Rmd` file.
 
+**Additional Notes:**
 
---== [Performing Quality Control] ==--
-New Cell Count: Orig -> New
-(X Cells Removed)
+-   Supports automatic conversion of ENSEMBL IDs to gene symbols.
 
+-   Filtering metrics can be configured in the `DataVisualization.Rmd`
+    file.
 
+## Instructions
 
+------------------------------------------------------------------------
 
+1.  Source all R script files and load packages/config variables through
+    the `DataVisualization.Rmd` file.
+2.  Place 10X Genomics formatted scRNA-Seq data files into the
+    `datasets/` directory.
+3.  Read and store data into individual seurat object variables
+    -   `samples <- generateSampleList(dataID)`
+4.  Perform batch correction through `integrateData()` function or
+    simply merge the samples normally through `mergeData()`.
+    -   *Not necessary if only one sample is present in the dataset.*
 
-Canonical Correlation Analysis
+    -   TODO: Create metrics for determining if batch correction is
+        necessary
+5.  Use `runDimReduction()` function to perform dimension reduction
+    analysis on the processed dataset.
+6.  Use code blocks in `DataVisualization.Rmd` file to generate figures
+    and visualize clustering/markers.
+    -   TODO: Better support image file generation for results
+
+## Documentation
+
+------------------------------------------------------------------------
+
+(TODO) Usage instructions for all custom functions created for the
+pipeline:
+
+`generateSampleList()`
+
+`filterSample()`
+
+`runDimReduction()`
+
+`annotateCellTypes()`
+
+`mergeData()`
+
+`integrateData()`

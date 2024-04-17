@@ -1,4 +1,66 @@
-# Data Visualization (& Cleanup) Cheatsheet
+# Data Visualization Cheatsheet
+
+```{r}
+
+library(Seurat)
+library(yaml)
+library(ggThemeAssist)
+library(dplyr)
+library(data.table)
+library(biomaRt)
+
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+
+
+# Update to use the appropriate GSE identifier for your analysis
+dataID = "Treg"
+
+# TODO: Support integration of separate datasets
+#(while retaining sample characteristics/identifiers)
+
+genesOfInterest = c("TFAM",
+                    "FOXK1",
+                    "FOXK2",
+                    "TFEB",
+                    "LDHA",
+                    "PCSK9",
+                    "TFAM",
+                    "GPR84")
+
+
+# Filtering Metrics
+FILT_METRICS = list(minFeatRNA = 500,
+                    maxFeatRNA = 800,
+                    mtExprLimit = 10) # The highest % of MT gene reads allowed
+
+NUM_PCS = 50 # The # of principal components to generate
+
+
+
+CELL_TYPES = c("metastatic", "primary")
+
+
+
+# --== Convert Gene Names ==--
+# ensembl <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+# gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+#                    filters = "ensembl_gene_id",
+#                    values = features.tsv[1],
+#                    mart = ensembl,
+#                    uniqueRows = FALSE)
+```
+
+### Re-Source All Script Files
+
+```{r}
+
+for (f in list.files(path="src/", pattern="*.R")) {
+  print(f)
+  source(paste("src/", f, sep=""))
+}
+
+```
 
 ## Gene Expression Analysis
 
@@ -19,13 +81,10 @@ markerList = list(
 
 Features(sample)[Features(sample) %like% "IG"]
 
-```
 
-### aaa
-
-```{r}
-
+# Retrieve gene symbols from ensembl IDs
 keyref <- mapIds(org.Mm.eg.db, keys=counts@Dimnames[[1]], column="SYMBOL", keytype="ENSEMBL")
+
 ```
 
 ## Analyzing Dimension Reduction
@@ -53,7 +112,7 @@ Features(samples)[Features(samples) %like% "PD"]
 DimPlot(samples, reduction="integrated.cca", group.by="sample")
 
 # very useful and informative visualization :D
-DimHeatmap(mergedSamples, dims = 1:2, cells = 500, balanced = TRUE)
+DimHeatmap(samples, dims = 1:2, cells = 500, balanced = TRUE)
 
 # Generate Feature Plot
 FeaturePlot(samples, cols=c("grey", "red"),

@@ -1,6 +1,8 @@
+
 # --== filterSample() ==--
 # Input/Usage
 #
+
 filterSample <- function(seuratObject) {
   seuratObject$percent_MT <-
     PercentageFeatureSet(seuratObject, pattern = "^MT-")
@@ -21,6 +23,11 @@ filterSample <- function(seuratObject) {
   # Filtered Cell Count:
   # (X Cells Removed)
   
+  
+  # TODO: Is it preferred to normalize/scale data following the merge?
+  # then again, we might not have enough memory anyways
+  seuratObject <- NormalizeData(seuratObject)
+  seuratObject <- ScaleData(seuratObject)
   
   return(seuratObject)
 }

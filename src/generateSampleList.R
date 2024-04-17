@@ -5,6 +5,7 @@
 #   ignoreList          List of sample substrings to ignore
 #                       ("meta" included by default)
 #   convertFeatures     Enable if gene IDs must be converted to gene symbols
+
 generateSampleList <- function(dataID,
                                ignoreList = vector(),
                                convertFeatures = FALSE) {
@@ -49,7 +50,7 @@ generateSampleList <- function(dataID,
       name = strsplit(folder, split = "/")[[1]][3]
     
     # TODO: By default take final suffix (i.e. "_UMM061") as sample names
-    # and provide user with optional manual input/override
+    # and provide user with optional manual input/override aaa
     
     sprintf("\nLoading Sample [$d/$d]")
     
