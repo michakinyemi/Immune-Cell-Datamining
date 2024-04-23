@@ -1,8 +1,5 @@
 
-# --== mergeData() ==--
-# test
-
-mergeData <- function(sampleList) {
+mergeSamples <- function(sampleList) {
   sampleCount = length(sampleList)
   
   #idList = list()
@@ -15,7 +12,6 @@ mergeData <- function(sampleList) {
   
   mergedData <-
     merge(x = sampleList[[1]], y = sampleList[2:sampleCount], project = dataID)
-  return(mergedData)
   mergedData <- JoinLayers(mergedData)
   return(mergedData)
 }

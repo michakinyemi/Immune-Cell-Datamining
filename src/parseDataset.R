@@ -1,14 +1,8 @@
 
-# --== generateSampleList() ==--
-# Input/Usage
-#   dataID              Name of the folder containing your dataset
-#   ignoreList          List of sample substrings to ignore
-#                       ("meta" included by default)
-#   convertFeatures     Enable if gene IDs must be converted to gene symbols
-
-generateSampleList <- function(dataID,
-                               ignoreList = vector(),
-                               convertFeatures = FALSE) {
+parseDataset <- function(dataID,
+                        ignoreList = vector(),
+                        convertFeatures = FALSE,
+                        conditionStates=NULL) {
   
   dataDirList <-
     list.dirs(path = paste("datasets/", dataID, sep = ""),
@@ -18,14 +12,17 @@ generateSampleList <- function(dataID,
   ignoreList <- append(ignoreList, "meta")
   tempList <- dataDirList
   
+  # Single Sample Setup
   if (length(dataDirList)==0) single=TRUE
   else single=FALSE
   
   if (single) {
     dataDirList = append(dataDirList, paste("datasets/", dataID, sep = ""))
     sampleCount = 1
-  } else {
-    # Remove meta folder and ignored samples
+  }
+  
+  # Multi-Sample Setup
+  if (!single) {
     sampleCount = 0
     for (folder in tempList) {
       include = TRUE
@@ -35,13 +32,12 @@ generateSampleList <- function(dataID,
           include = FALSE
         }
       }
-      if (include)
-        sampleCount = sampleCount + 1
+      if (include) sampleCount = sampleCount + 1
     }
   }
   
+  # Read each 10X formatted folder "detected" (TODO)
   i = 0
-  # Read 10X folder, convert to Seurat, and filter
   for (folder in dataDirList) {
     i = i + 1
     if (single)
@@ -67,7 +63,7 @@ generateSampleList <- function(dataID,
     data <- CreateSeuratObject(counts = data)
     data$orig.sample = name
     
-    cat("Filtering", name)
+    cat("Filtering", name, "\n")
     data <- filterSample(data)
     
     # TODO: Handle interactive addition of samples
@@ -84,8 +80,15 @@ generateSampleList <- function(dataID,
 }
 
 
-# TODO Features:
-# - Auto/manually classify as mouse/human model
+
+
+
+
+
+
+
+
+
 
 
 

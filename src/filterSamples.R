@@ -1,8 +1,4 @@
 
-# --== filterSample() ==--
-# Input/Usage
-#
-
 filterSample <- function(seuratObject) {
   seuratObject$percent_MT <-
     PercentageFeatureSet(seuratObject, pattern = "^MT-")

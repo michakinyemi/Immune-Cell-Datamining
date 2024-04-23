@@ -4,27 +4,37 @@
 # Input/Usage
 #
 
-convertToSymbol <- function(data) {
-  features <- data@Dimnames[[1]]
+convertToSymbol <- function(geneList, species="Hs") {
+  #features <- data@Dimnames[[1]]
+  
+  if (species == "Mm") database = org.Mm.eg.db
+  else database = org.Hs.eg.db
+  
+  print(typeof(database))
+  
   geneTable <- mapIds(
     org.Mm.eg.db,
-    keys = rownames(data),
+    keys = geneList, #rownames(data)
     column = "SYMBOL",
     keytype = "ENSEMBL"
   )
+
+  inCommon <- geneList %in% names(geneTable)
+  geneList[inCommon] <-
+    unlist(geneTable[geneList[inCommon]])
   
-  inCommon <- rownames(data) %in% names(geneTable)
-  rownames(data)[inCommon] <-
-    unlist(geneTable[rownames(data)[inCommon]])
+  geneList <- toupper(geneList)
   
-  return(data)
+  return(geneList)
 }
 
 
 # --== annotateCellTypes() ==--
 #
 
-annotateCellTypes <- function(seuratObject, markerGenes) {
+annotateCellTypes <- function(
+    seuratObject,
+    markerGenes=NULL) {
   # Initialize a new column for cell type annotations
   seurat_object$cell_type <- NA
   
