@@ -1,182 +1,229 @@
 # Data Visualization Cheatsheet
 
-```{r}
-
-library(Seurat)
-library(yaml)
-library(ggThemeAssist)
-library(dplyr)
-library(data.table)
-library(biomaRt)
-
-library(org.Hs.eg.db)
-library(org.Mm.eg.db)
-
-
-# Update to use the appropriate GSE identifier for your analysis
-dataID = "Treg"
-
-# TODO: Support integration of separate datasets
-#(while retaining sample characteristics/identifiers)
-
-genesOfInterest = c("TFAM",
-                    "FOXK1",
-                    "FOXK2",
-                    "TFEB",
-                    "LDHA",
-                    "PCSK9",
-                    "TFAM",
-                    "GPR84")
-
-
-# Filtering Metrics
-FILT_METRICS = list(minFeatRNA = 500,
-                    maxFeatRNA = 800,
-                    mtExprLimit = 10) # The highest % of MT gene reads allowed
-
-NUM_PCS = 50 # The # of principal components to generate
-
-
-
-CELL_TYPES = c("metastatic", "primary")
-
-
-
-# --== Convert Gene Names ==--
-# ensembl <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
-# gene_info <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
-#                    filters = "ensembl_gene_id",
-#                    values = features.tsv[1],
-#                    mart = ensembl,
-#                    uniqueRows = FALSE)
-```
-
-### Re-Source All Script Files
-
-```{r}
-
-for (f in list.files(path="src/", pattern="*.R")) {
-  print(f)
-  source(paste("src/", f, sep=""))
-}
-
-```
-
-## Gene Expression Analysis
+## General Preprocessing
 
 ------------------------------------------------------------------------
 
-```{r}
-
-
-markerList = list(
-  "Exhaution" = c("LAG-3", "PD-1", "TIM-3", "TCF-1", "TIGIT", "FLI-1", "ITIM"),
-  
-  "TCell" = c("CD3D", "CD3E"),
-  
-  "Treg" = c("FOXP3"),
-  
-  "BCell" = c("CD19","CD79A")
-)
-
-Features(sample)[Features(sample) %like% "IG"]
-
-
-# Retrieve gene symbols from ensembl IDs
-keyref <- mapIds(org.Mm.eg.db, keys=counts@Dimnames[[1]], column="SYMBOL", keytype="ENSEMBL")
-
-```
-
-## Analyzing Dimension Reduction
-
-------------------------------------------------------------------------
+### Gene Expression Analysis
 
 ```{r}
-
-
-
-# --== Analyze Principal Components ==--
-
-# Determine "dimensionality" by visualizing amount of change 
-ElbowPlot(samples)
-# We might need to avoid using the first 1-2 PCs that are generated as the extreme amount of variation they contain is likely due to differences within the cell cycle
-VizDimLoadings(samples, dims = 1:2, reduction = "pca")
 
 
 # Search for specific features (genes) present
 Features(samples)
-Features(samples)[Features(samples) %like% "PD"]
+
+Features(samples)[Features(samples) %like% "CD56"]
 
 
-# Check For Batch Effect
-DimPlot(samples, reduction="integrated.cca", group.by="sample")
-
-# very useful and informative visualization :D
-DimHeatmap(samples, dims = 1:2, cells = 500, balanced = TRUE)
-
-# Generate Feature Plot
-FeaturePlot(samples, cols=c("grey", "red"),
-            reduction = "umap",
-            features = markerList$Exhaution)
-
-
-# Generate Dimension Reduction Plot
-DimPlot(object = samples, reduction = "umap", label = TRUE, pt.size = 0.5)
-
-DimPlot(object = samples, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
-
-
-
-
-
-
-VlnPlot(mergedSamples, features = c("NKG7", "PF4"), log = TRUE)
 ```
 
-## Wrangling Cluster Annotations & Markers
-
-------------------------------------------------------------------------
+### Batch Effect Analysis & Tweaking Metadata
 
 ```{r}
 
-# View All Cluster (Idents) Names
-levels(samples)
+# Manually Update Sample Condition Names
+print(unique(samples@meta.data$orig.sample))
+
+samples@meta.data$orig.sample[samples@meta.data$orig.sample == "GSM6008408_PREP0128_ESint12162A_G9v1_SCb_BWH4_48h"] <- "48h"
 
 
-# Rename a specific cluster
-samples <- RenameIdents(samples, '4'="Treg Cells")
+# Check For Batch Effect
+DimPlot(samples, reduction="integrated.cca", group.by="orig.sample")
+
+DimPlot(samples, reduction="orig.umap", group.by="orig.sample")
+DimPlot(samples, reduction="umap", group.by="orig.sample")
+
+DimPlot(object=samples, reduction="umap", label = TRUE, pt.size = 0.5, group.by="orig.sample")
 
 
 ```
+
+## Dimension Reduction Analysis
+
+------------------------------------------------------------------------
+
+### Reviewing Principal Component Analysis
+
+```{r}
+
+# --== Analyze Principal Components ==--
+print(samples[["orig.pca"]], dims = 1:20, nfeatures = 30)
+
+# Determine "dimensionality" by visualizing amount of change 
+ElbowPlot(samples, reduction = "orig.pca")
+
+VizDimLoadings(samples, dims = 1:2, reduction = "orig.pca")
+```
+
+### Plotting Dimension Reductionality
+
+```{r}
+
+# Generate Dimension Reduction Plot
+figure <- DimPlot(object=samples, reduction="umap", label = TRUE, pt.size = 0.5)
+ggsave("results/[DimPlot] Original UMAP.png", figure, width=6, height=4, dpi=300)
+
+
+DimPlot(object=samples, reduction="orig.umap", label = TRUE, pt.size = 0.5)
+DimPlot(object=samples, reduction="umap", label = TRUE, pt.size = 0.5)
+
+VlnPlot(samples, features = CTM$Exhaust, log = TRUE, pt.size=0)
+
+
+VlnPlot(samples, features = "LAG1", log = TRUE, pt.size=0)
+
+# Generate Feature Plot
+
+figure <- FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap",
+                      features = genesOfInterest)
+ggsave("results/[FeaturePlot] Genes of Interest.png", figure, width=10, height=8, dpi=600)
+
+
+```
+
+## Investigating Clusters & Markers
+
+------------------------------------------------------------------------
+
+### Identify Cluster Markers
 
 ```{r}
 
 # --== FindAllMarkers() ==--
 
-identMarkers <- FindAllMarkers(samples, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
-
-
-
-# --== Displaying Markers ==--
+de_markers <- FindAllMarkers(samples, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
 
 # Print top n markers for each cluster
-topMarkers <- identMarkers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+topMarkers <- de_markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
 View(topMarkers)
 
+# View All Cluster (Idents) Names
+levels(samples)
 
-print(samples[["pca"]], dims = 3:20, nfeatures = 30)
+samples <- RenameIdents(samples, '3'="Neutrophils")
+
+
+samples$cell.type <- samples@active.ident
+
 
 
 # Remember that clusters /= PCs
-# Markers are identified PER CLUSTER
+# Markers are identified PER CLUSTERy
 
 
 Idents(samples)
+
+de_genes <- rownames(de_markers)
+de_expr <- GetAssayData(samples1a, slot = "data")[de_genes, ]
+
 ```
 
-## Creating Subsets
+### Generate Gene Set Modules
+
+```{r}
+
+object <- AddModuleScore(object = samples, features = CTM["Exhaust"] , name = "geneSet")
+
+
+                                              
+```
+
+## Primary Heatmap Setup
 
 ------------------------------------------------------------------------
+
+### Generate Average Expression Per Cluster
+
+```{r}
+
+# Set Up Annotation
+
+
+# very useful and informative visualization :D
+DimHeatmap(samples, dims = 1:2, cells = 500, balanced = TRUE)
+
+
+expression_data <- GetAssayData(samples)[c("FOXP3", "LDHA", "FOXK1"), ]
+cluster_assignments <- samples$cell.type
+
+# Subset the expression data based on cluster assignments
+cluster_expression <- expression_data[, cluster_assignments %in% c("1", "2")]
+
+# Transpose the data so that rows represent genes and columns represent clusters
+cluster_expression <- t(cluster_expression)
+
+# Install and load the pheatmap package if not already installed
+# install.packages("pheatmap")
+
+
+cluster_expression_fixed <- apply(cluster_expression, 2, function(x) {
+  replace(x, x == 0, NA)
+})
+
+gn <- c("FOXP3", "LDHA", "FOXK1", 'SOX9', 'HOXP', 'MKI67', 'EOMES', 'NEUROD2', 'SATB2', 'NR4A2', 'GAD1',"TFAM", "FOXK2", "TFEB", "LDHA", "PCSK9", "GPR84")
+gn <- intersect(gn, rownames(GetAssayData(samples, slot = 'data')))
+mat <- AverageExpression(samples, features = gn, layer = 'data',
+                         group.by = c("cell.type", "orig.sample"))
+
+
+
+
+```
+
+### Set Up Heatmap
+
+```{r}
+# Create the heatmap using pheatmap
+mat1 <- t(scale(t(as.matrix(mat$RNA))))
+
+# set colors 
+paletteLength <- 50
+#myColor <- colorRampPalette(brewer.pal(11, "RdBu"))(paletteLength)
+myColor1 <- colorRampPalette(rev(c( rgb(255,42,20,maxColorValue = 255), 
+                                    "#FDAE61" ,"#FEE090", "#E0F3F8" ,"#74ADD1" ,"#4575B4")))(paletteLength)
+
+myBreaks <- c(seq(min(mat1), 0, length.out=ceiling(paletteLength/2) + 1), 
+              seq(max(mat1)/paletteLength, max(mat1), length.out=floor(paletteLength/2)))
+
+
+# set annotation
+unique_combinations <- unique(paste0(samples$cell.type, "_", samples$orig.sample))
+
+anno_col <- data.frame(
+  Group_Condition = unique_combinations
+)
+
+split_group_time <- strsplit(anno_col$Group_Condition, "_")
+
+anno_col <- data.frame(
+  Type = sapply(split_group_time, `[`, 1),
+  Time = sapply(split_group_time, `[`, 2)
+)
+
+rownames(anno_col) <- colnames(mat1)
+
+time_order <- unique(anno_col$Time)
+
+mat1 <- mat1[, order(match(anno_col$Time, time_order))]
+anno_col <- anno_col[order(match(anno_col$Time, time_order)), ]
+
+pheatmap::pheatmap(
+  mat1,
+  border_color = NA,
+  color = myColor,
+  breaks = myBreaks,
+  annotation_col = anno_col,
+  angle_col = 45
+)
+  
+
+```
+
+## Creating Subset Datasets
+
+------------------------------------------------------------------------
+
+### Investigating Exhausted Tc Populations
 
 ```{r}
 
@@ -221,69 +268,4 @@ print(nrow(cells_with_gene_expression))
 
 
 exhaustSubset <- subset(seurat_obj, subset = RNA, gene_symbol = gene_of_interest)
-
-```
-
-## Auto-Analysis Functions
-
-------------------------------------------------------------------------
-
-### dataVis()
-
--   **Input:** Seurat Object
-
--   **Output:** None
-
-```{r}
-dataVis <- function(genesOfInterest){
-  
-  VlnPlot(pbmc, features = c("NKG7", "PF4"), slot = "counts", log = TRUE)
-  
-  out1 <- x + y
-  out2 <- t + v
-  
-  
-  if (is.null(genesOfInterest)) {
-      cat("target genes provided")
-  }
-  
-}
-
-
-fun <- function(){
-  x <- readline("What is the value of x? ")  
-  y <- readline("What is the value of y? ")
-  t <- readline("What are the T values? ")
-  v <- readline("What are the V values? ")
-  
-  x <- as.numeric(unlist(strsplit(x, ",")))
-  y <- as.numeric(unlist(strsplit(y, ",")))
-  t <- as.numeric(unlist(strsplit(t, ",")))
-  v <- as.numeric(unlist(strsplit(v, ",")))
-  
-  out1 <- x + y
-  out2 <- t + v
-  
-  return(list(out1, out2))
-  
-}
-
-```
-
-### annotateCellTypes()
-
-```{r}
-# --== annotateCellTypes() ==--
-annotateCellTypes <- function(seuratObject, markerGenes) {
-  
-  
-  
-  
-  
-  return(figure)
-}
-
-
-
-
 ```
