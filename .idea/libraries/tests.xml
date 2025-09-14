@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="tests">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/renv/library/linux-ubuntu-jammy/R-4.4/x86_64-pc-linux-gnu/data.table/tests/russellCRLF.zip!/" />
+      <root url="jar://$PROJECT_DIR$/renv/library/linux-ubuntu-jammy/R-4.4/x86_64-pc-linux-gnu/data.table/tests/multi-file.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

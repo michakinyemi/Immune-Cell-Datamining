@@ -4,3 +4,8 @@
 *.RData
 *.Ruserdata
 .Rproj.user
+markers.json
+gene_list.txt
+renv/
+data/
+results/

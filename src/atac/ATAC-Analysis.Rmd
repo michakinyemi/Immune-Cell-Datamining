@@ -1,0 +1,857 @@
+---
+title: "r_playground"
+output: html_document
+---
+
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("ChIPseeker", force = TRUE)
+BiocManager::install("GenomicFeatures")
+BiocManager::install("txdbmaker")
+BiocManager::install("org.Mm.eg.db")
+BiocManager::install("rtracklayer", force = TRUE)
+```
+
+```{r}
+
+library(tidyverse)
+library(dplyr)
+
+library(ChIPseeker)
+library(GenomicFeatures)
+library(txdbmaker)
+library(org.Mm.eg.db)
+library(rtracklayer)
+
+library(ggplot2)
+library(ggrepel)
+```
+
+```{r}
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("DESeq2", force=TRUE)
+library(DESeq2)
+
+```
+
+General Workflow:
+
+1.  Adapter Trimming
+2.  Read Alignment
+3.  Peak Calling & Coverage Calculations
+4.  
+
+# Pre-processing
+
+Generate counts.tsv file:
+
+```{bash}
+source env.sh
+
+cat $curDir"results/Sample1_peaks.narrowPeak" \
+    $curDir"results/Sample2_peaks.narrowPeak" \
+    $curDir"results/Sample3_peaks.narrowPeak" \
+    $curDir"results/Sample4_peaks.narrowPeak" | \
+sort -k1,1 -k2,2n | \
+bedtools merge > $curDir"results/merged_peaks.bed"
+
+
+bedtools multicov -bams $curDir"results/Sample1.bam" \
+                        $curDir"results/Sample2.bam" \
+                        $curDir"results/Sample3.bam" \
+                        $curDir"results/Sample4.bam" \
+                  -bed $curDir"results/merged_peaks.bed" \
+                  > $curDir"results/counts.tsv"
+  
+sed -i 's/^/chr/' $curDir"results/counts.tsv"
+sed -i 's/^/chr/' $curDir"results/merged_peaks.bed"
+
+sed -i '1i chr\tstart\tend\tSample1\tSample2\tSample3\tSample4' "../results/counts.tsv"
+
+```
+
+## Generate Genome Tracks
+
+Iterates over each `.ini` file generated through the `get_global_max.py` script to generate the final genome track figures.
+
+```{bash}
+source env.sh
+
+input_file="${curDir}datasets/Foxk1/target_regions.bed"
+
+# Read the input file line by line
+while IFS=$'\t' read -r chrom start end gene; do
+    # Construct the command
+    track_file="${curDir}datasets/Foxk1/per_region_configs/tracks_${gene}.ini"
+    output_file="${curDir}results/tracks/${gene}.pdf"
+    
+    pyGenomeTracks --tracks "$track_file" --region "${chrom}:${start}-${end}" -o "$output_file"
+
+done < "$input_file"
+
+```
+
+```{bash}
+source env.sh
+
+# Extract gene features from GTF
+
+# Convert GTF to BED format
+awk '$3 == "gene"' $genomeDir"gencode.vM36.chr_patch_hapl_scaff.annotation.gtf" | \
+  awk 'BEGIN{OFS="\t"} {
+    match($9, /gene_name "([^"]+)"/, a); 
+    print $1, $4-1, $5, a[1]
+  }' > $genomeDir"genes.bed"
+  
+cut -f1,4,5,9 $genomeDir"genes.gtf" | sed 's/.*gene_name "\([^"]*\)".*/\1/' > $genomeDir"genes.bed"
+
+# Find closest genes within X bp (e.g., 10000)
+# bedtools closest -a peaks.bed -b genes.bed -d | awk '$NF <= 10000' | cut -f8 | sort | uniq > genes_near_peaks.txt
+
+```
+
+## Important Stuff
+
+```{bash}
+source env.sh
+
+cat $curDir"results/Sample1_peaks.narrowPeak" $curDir"results/Sample2_peaks.narrowPeak" \
+  $curDir"results/Sample3_peaks.narrowPeak" $curDir"results/Sample4_peaks.narrowPeak" | \
+  sort -k1,1 -k2,2n | \
+  bedtools merge > $curDir"results/merged_peaks.bed"
+  
+sed -i 's/^/chr/' $curDir"results/merged_peaks.bed"
+
+bedtools multicov -bams $curDir"results/Sample1.bam" $curDir"results/Sample2.bam" \
+  $curDir"results/Sample3.bam" $curDir"results/Sample4.bam" \
+  -bed $curDir"results/merged_peaks.bed" > $curDir"results/counts.tsv"
+```
+
+# Primary ATAC-Seq Analysis
+
+## ChIPseeker
+
+```{r}
+
+txdb <- makeTxDbFromGFF("../datasets/genomes/gencode.vM36.chr_patch_hapl_scaff.annotation.gtf")
+
+length(genes(txdb)) 
+
+peakAnno <- annotatePeak("../results/Sample4.bed",
+                         TxDb=txdb,
+                         tssRegion=c(-3000,3000),
+                         annoDb="org.Mm.eg.db")
+
+plotAnnoPie(peakAnno)
+```
+
+```{r}
+gr <- peakAnno@anno
+mcols(gr)$name <- ifelse(is.na(mcols(gr)$SYMBOL),
+                         mcols(gr)$annotation,
+                         mcols(gr)$SYMBOL)
+
+mcols(gr)$score  <- 0
+strand(gr)       <- "*"
+
+export(gr, "../results/merged_annotated.bed")
+```
+
+## Processing counts.tsv
+
+Append list of closest genes:
+
+```{bash}
+source env.sh
+
+cut -f1-3 $curDir"results/counts.tsv"  \
+  | tail -n +2 \
+  > "${curDir}/results/counts.bed"
+
+bedtools closest \
+  -a $curDir"results/counts.bed" \
+  -b $curDir"results/genes.bed" \
+  -k 5 \
+  > $curDir"results/closest.tsv"
+
+awk '
+  BEGIN { FS=OFS="\t" }
+  # first file (closest.tsv): build a map from peak → comma-list of genes
+  FNR==NR {
+    key = $1":"$2"-"$3
+    gene = $7
+    if (key in G) {
+      if (G[key] !~ gene) G[key] = G[key] "," gene
+    } else {
+      G[key] = gene
+    }
+    next
+  }
+  {
+    key = $1":"$2"-"$3
+    genes = (key in G ? G[key] : ".")
+    print $0, genes
+  }
+' $curDir"results/closest.tsv" $curDir"results/counts.tsv" \
+  > $curDir"results/counts_with_genes.tsv"
+
+```
+
+Append predicted peak annotation:
+
+```{r}
+
+# 1) Read your “counts.tsv” — the one with just chr,start,end + sample columns
+counts <- read.delim("../results/counts.tsv",
+                     header=TRUE,
+                     stringsAsFactors=FALSE)
+
+# 2) Read your annotated BED but keep only chr,start,end + gene_ann (col 4)
+bed <- read.delim("../results/merged_annotated.bed",
+                  header=FALSE,
+                  stringsAsFactors=FALSE)[, 1:4]
+names(bed) <- c("chr","start","end","gene_ann")
+
+# 3) Read your counts_with_genes.tsv but select only chr,start,end + the gene-list column
+allcg <- read.delim("../results/counts_with_genes.tsv",
+                    header=TRUE,
+                    stringsAsFactors=FALSE)
+
+# if you named your appended column “closest_genes”, do:
+cg <- allcg[, c("chr","start","end",".")]
+
+# -- OR, if you don’t know its exact name but it’s the last column:
+# cg <- allcg[, c("chr","start","end", ncol(allcg))]
+# names(cg)[4] <- "closest_genes"
+
+# 4) Now merge them in two steps, keeping every row of your original counts
+cnt2 <- merge(counts, bed,
+              by    = c("chr","start","end"),
+              all.x = TRUE,   # fill with NA where there was no match
+              sort  = FALSE)  # preserve original order
+
+cnt2 <- merge(cnt2, cg,
+              by    = c("chr","start","end"),
+              all.x = TRUE,
+              sort  = FALSE)
+
+# 5) Replace any NAs with “.”
+cnt2$gene_ann     [is.na(cnt2$gene_ann)]      <- "."
+cnt2$.[is.na(cnt2$closest_genes)] <- "."
+
+# 6) Write it back out
+write.table(cnt2,
+            file      = "../results/counts.tsv",
+            sep       = "\t",
+            quote     = FALSE,
+            row.names = FALSE)
+
+
+```
+
+```{r}
+# DESeq2 Pipeline
+
+counts <- read.delim("../results/counts.tsv")
+
+counts$peak_id <- counts$gene
+colnames(counts) <- c("Sample1","Sample2","Sample3","Sample4")
+counts <- counts[, -(1:3)]  # remove chr/start/end
+
+coldata <- read.csv("samples.csv", row.names=1)
+
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = coldata,
+                              design = ~ condition)
+
+dds <- estimateSizeFactors(dds)
+norm_counts <- counts(dds, normalized=TRUE)
+
+dds <- DESeq(dds)
+
+
+res <- results(dds, contrast = c("condition", "Sample2", "Sample1"))
+
+summary(res)
+
+```
+
+```{r}
+
+counts <- read.delim("../results/counts.tsv")
+
+wcounts$peak_id <- counts$gene
+
+# CPM normalization
+counts$Sample1_CPM   <- counts$Sample1 / sum(counts$Sample1) * 1e6
+counts$Sample2_CPM <- counts$Sample2 / sum(counts$Sample2) * 1e6
+counts$Sample3_CPM <- counts$Sample3 / sum(counts$Sample3) * 1e6
+counts$Sample4_CPM <- counts$Sample4 / sum(counts$Sample4) * 1e6
+
+# Log2 Fold Change
+counts$Sample2_log2FC <- log2((counts$Sample2_CPM + 1) / (counts$Sample1_CPM + 1))
+counts$Sample3_log2FC <- log2((counts$Sample3_CPM + 1) / (counts$Sample1_CPM + 1))
+counts$Sample4_log2FC <- log2((counts$Sample4_CPM + 1) / (counts$Sample1_CPM + 1))
+
+counts$Revert_log2FC <- log2((counts$Sample3_CPM + 1) / (counts$Sample2_CPM + 1))
+
+```
+
+```{r}
+
+colname <- "Sample4_log2FC"
+
+# Threshold Based Filtering
+FOLD <- 1.5
+upregulated <- counts %>% filter(.data[[colname]] > FOLD)
+downregulated <- counts %>% filter(.data[[colname]] < -FOLD)
+neutral <- counts %>% filter(.data[[colname]] >= -FOLD & .data[[colname]] <= FOLD)
+
+# Cutoff Based Filtering
+N <- 20
+top_up <- counts[order(-counts$Sample3_log2FC), ][1:N, ]
+top_down <- counts[order(counts$Sample3_log2FC), ][1:N, ]
+
+# write.table(top_up[, c("chr", "start", "end")],
+#             file = "../../results/atac/top_up.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+# 
+# 
+# write.table(top_down[, c("chr", "start", "end")],
+#             file = "../../results/atac/top_down.bed",
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+# 
+# write.table(counts,
+#             file = sprintf("../../results/atac/counts.tsv", colname),
+#             sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(counts, aes(x=Revert_log2FC)) +
+  geom_histogram(bins=50, fill="steelblue") +
+  geom_vline(xintercept=c(-1, 1), linetype="dashed", color="red") +
+  theme_minimal() +
+  labs(title="Distribution of log2 Fold Changes", x="log2(Sample1 vs Sample 2)", y="Peak Count")
+
+```
+
+```{r}
+counts$mean_CPM <- rowMeans(counts[, c("Sample2_CPM", "Sample3_CPM")])
+counts$log10_mean_CPM <- log10(counts$mean_CPM + 1)
+
+
+counts$direction <- ifelse(counts$Revert_log2FC > FOLD, "Up",
+                     ifelse(counts$Revert_log2FC < -FOLD, "Down", "Neutral"))
+
+N <- 5
+top_labeled <- rbind(
+  counts[order(-counts$Revert_log2FC), ][1:N, ],
+  counts[order(counts$Revert_log2FC), ][1:N, ]
+)
+
+genes_to_label <- c("Cdk5rap1","Zfp932", "Ccdc22")
+
+# Decide what genes to display:
+
+data <- counts %>% filter(gene_ann %in% genes_to_label)
+# data <- top_labeled %>%
+#   filter(
+#     !str_detect(gene_ann, regex("Exon", ignore_case = TRUE)),
+#     !str_detect(gene_ann, regex("Promoter", ignore_case = TRUE)),
+#     !str_detect(gene_ann, regex("Intergenic", ignore_case = TRUE)),
+#     !str_detect(gene_ann, regex("Intron", ignore_case = TRUE))
+#   )
+# data <- top_labeled
+
+ggplot(counts, aes(x = log10_mean_CPM, y = Revert_log2FC, color = direction)) +
+  geom_point(alpha = 0.6) +
+  geom_text_repel(
+    data = data,
+    aes(
+      label = gene_ann,
+      color = ifelse(direction == "Neutral",
+                     NA,                # drop Neutral into NA
+                     as.character(direction))
+    ),         # force black text
+    size = 5,
+    max.overlaps = 20,
+    box.padding = 0.4,
+    point.padding = 0.2,
+    show.legend = FALSE      # don’t add text to legend
+  ) +
+
+  # red for Up, blue for Down, gray for Neutral
+  scale_color_manual(
+    name   = "direction",
+    values = c("Up"      = "red",
+               "Down"    = "blue",
+               "Neutral" = "gray")
+  ) +
+
+  # fold‐change lines
+  geom_hline(yintercept = c(-FOLD, FOLD),
+             linetype   = "dashed",
+             color      = "black") + 
+  geom_hline(yintercept = c(-FOLD, FOLD), linetype = "dashed", color = "black") +
+  theme_classic() +
+  labs(
+    title = "MA Plot: Sample2 vs Sample3",
+    x = "log10 Mean CPM",
+    y = "log2 Fold Change"
+  )
+
+# ggsave("../results/atac/ma_plot_sample1_vs_revert.png", width = 7, height = 5)
+```
+
+One column with a list of the nearby genes
+
+Another column with the predicted associated gene through a tool like ChipSeeker
+
+```{bash}
+source env.sh
+
+echo $sampleDir
+
+
+
+```
+
+# RNA/ATAC-Seq Integration
+
+This script is used to
+
+```{r}
+if (!requireNamespace("DESeq2", quietly=TRUE)) 
+  BiocManager::install("DESeq2")
+
+if (!requireNamespace("DiffBind", quietly=TRUE)) 
+  BiocManager::install("DiffBind")
+
+if (!requireNamespace("ChIPseeker", quietly=TRUE)) 
+  BiocManager::install("ChIPseeker")
+
+if (!requireNamespace("TxDb.Mmusculus.UCSC.mm10.knownGene", quietly=TRUE)) 
+  BiocManager::install("TxDb.Mmusculus.UCSC.mm10.knownGene")
+
+if (!requireNamespace("org.Mm.eg.db", quietly=TRUE)) 
+  BiocManager::install("org.Mm.eg.db")
+
+if (!requireNamespace("org.Hs.eg.db", quietly=TRUE)) 
+  BiocManager::install("org.Hs.eg.db")
+
+
+install.packages("data.table")
+library(data.table)
+
+BiocManager::install("GenomicRanges")
+library(GenomicRanges)
+
+library(DESeq2)
+library(DiffBind)
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(org.Mm.eg.db)
+library(org.Hs.eg.db)
+library(ggplot2)
+library(dplyr)
+library(biomaRt)
+library(AnnotationDbi)
+library(tidyverse)
+library(fdrtool)
+library(ggrepel)
+```
+
+### Data Importing
+
+```{r}
+
+rna_dir <- "datasets/public/GSE171737/GSE171677_RNA_UMI_dedup_counts.txt"
+atac_dir <- "datasets/public/GSE171737/GSE171736_ATAC_counts.txt" 
+
+rna <- read.delim(rna_dir, check.names=FALSE)
+atac <- read.delim(atac_dir, check.names=FALSE)
+
+rna_meta_cols <- c("Geneid","Chr","Start","End","Strand","Length")
+atac_meta_cols <- c("Chr",	"start",	"end",	"width",	"strand",	"peakName")
+
+# Handle sample discrepencies
+rna_samples <- setdiff(colnames(rna), rna_meta_cols)
+atac_samples <- setdiff(colnames(atac), atac_meta_cols)
+
+rna_not_in_atac <- setdiff(rna_samples, atac_samples)
+atac_not_in_rna <- setdiff(atac_samples, rna_samples)
+
+rna <- rna[, ! colnames(rna) %in% rna_not_in_atac ]
+atac <- atac[, ! colnames(atac) %in% atac_not_in_rna ]
+
+```
+
+```{r}
+# Set up metadata file with condition/replicate info
+samples  <- colnames(rna)[-(1:6)]
+meta     <- data.frame(
+  sample = samples,
+  condition = ifelse(grepl("AAVS", samples), "Ctrl", "KO")
+)
+meta$donor <- sub("^Donor_([0-9]+)_.*", "Donor_\\1", meta$sample)
+meta$condition <- sub("^Donor_[0-9]+_", "", meta$sample)
+rownames(meta) <- meta$sample
+
+```
+
+```{r}
+
+get_all_contrasts <- function(dds,
+                              control,
+                              condition_col = "condition",
+                              id_col        = "feature") {
+  # pull out the condition vector
+  conds <- unique(as.character(colData(dds)[[condition_col]]))
+  if (!control %in% conds) {
+    stop("Control '", control, "' not found in dds colData$", condition_col)
+  }
+  kos <- setdiff(conds, control)
+  
+  # helper: for each KO, run results() and tidy up
+  pull_one <- function(ko) {
+    res <- results(dds,
+                   contrast = c(condition_col, ko, control)) %>%
+      as.data.frame() %>%
+      rownames_to_column(var = id_col) %>%
+      dplyr::select(
+        !!id_col,
+        !!paste0("log2FC_", ko) := log2FoldChange,
+        !!paste0("p_adj_",  ko) := padj
+      )
+    res
+  }
+  
+  # map over all KOs and left-join them together
+  res_list   <- map(kos, pull_one)
+  joined_res <- reduce(res_list, left_join, by = id_col)
+  joined_res
+}
+
+
+```
+
+### Run DESeq2 on Data
+
+```{r}
+# DESeq2 on RNA
+rna_counts <- rna[ , samples ]
+rownames(rna_counts) <- rna$Geneid
+
+dds_rna <- DESeq2::DESeqDataSetFromMatrix(
+  countData = rna_counts,
+  colData   = meta,
+  design    = ~ donor + condition
+)
+
+dds_rna <- DESeq2::DESeq(dds_rna)
+
+res_rna <- get_all_contrasts(dds_rna, control = "AAVS1_1")
+
+```
+
+```{r}
+# DESeq2 on ATAC
+peak_ids <- paste(atac$Chr, atac$start, atac$end, sep=":")
+atac_counts <- atac[ , samples ]
+rownames(atac_counts) <- peak_ids
+
+dds_atac <- DESeq2::DESeqDataSetFromMatrix(
+  countData = atac_counts,
+  colData   = meta,
+  design    = ~ donor + condition
+)
+
+dds_atac <- DESeq2::DESeq(dds_atac)
+
+ctrl  <- "AAVS1_3"
+res_atac <- get_all_contrasts(dds_atac, control = "AAVS1_1")
+
+```
+
+### Convert Gene IDs to Gene Symbols (If Necessary)
+
+```{r}
+# Convert RNA's Gene IDs to Gene Symbols
+res_rna <- res_rna %>%
+  rename(ensembl_id = feature) %>%  
+  # strip version suffix
+  mutate(ensembl_id = sub("\\.\\d+$","", ensembl_id)) %>%
+  # map to SYMBOL
+  mutate(symbol = mapIds(
+    org.Hs.eg.db,
+    keys      = ensembl_id,
+    column    = "SYMBOL",
+    keytype   = "ENSEMBL",
+    multiVals = "first"
+  )) %>%
+  filter(!is.na(symbol))
+```
+
+### Annotate ATAC-Seq Peaks as Genes
+
+```{r}
+# Annotate peaks genes
+txdb    <- TxDb.Hsapiens.UCSC.hg19.knownGene::TxDb.Hsapiens.UCSC.hg19.knownGene
+peakGR  <- GenomicRanges::makeGRangesFromDataFrame(
+  atac %>% dplyr::select(Chr, start, end),
+  seqnames.field = "Chr", start.field="start", end.field="end"
+)
+peakAnno <- ChIPseeker::annotatePeak(
+  peakGR,
+  TxDb      = txdb,
+  annoDb    = "org.Hs.eg.db",
+  tssRegion = c(-2000, 500)
+)
+anno_df <- as.data.frame(peakAnno) %>%
+  dplyr::mutate(peak = paste(seqnames, start, end, sep=":")) %>%
+  dplyr::select(peak, symbol = SYMBOL) %>%
+  filter(!is.na(symbol))
+
+# Collapse ATAC per gene & merge with RNA
+# join ATAC results with gene annotation
+res_atac <- res_atac %>%
+  rename(peak = feature) %>%
+  inner_join(anno_df, by = "peak") %>%
+  group_by(symbol) %>%
+  summarize(
+    across(starts_with("log2FC_"), mean, na.rm=TRUE),
+    across(starts_with("p_adj_"),  min,  na.rm=TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# join RNA + ATAC
+rna_atac_integrated <- res_rna %>%
+  inner_join(res_atac, by=c("symbol"="symbol"), suffix = c("_seq", "_atac")) %>%
+  relocate(symbol, .after = 1)
+
+```
+
+```{r}
+
+corrected <- fdrtool(mydata$stat, statistic= "normal", plot = T)
+
+test <- results(dds_rna,
+         contrast    = c("condition","FOXK1","AAVS1_1"),
+         independentFiltering = FALSE)
+
+stat_rna <- test$stat[!is.na(test$stat)]
+
+fit_rna <- fdrtool(stat_rna,
+                   statistic = "normal",
+                   plot      = TRUE,      # shows histogram + fitted null
+                   verbose   = TRUE)
+
+test$emp_pval  <- NA_real_
+test$emp_qval  <- NA_real_
+# put them back in the same order
+ok <- !is.na(test$stat)
+test$emp_pval[ok] <- fit_rna$pval
+test$emp_qval[ok] <- fit_rna$qval
+
+test <- as.data.frame(test) %>%
+  rownames_to_column("ensembl_id") %>%
+  mutate(ensembl_id = sub("\\.\\d+$","",ensembl_id)) %>%
+  dplyr::select(ensembl_id, emp_qval) %>%
+  rename(emp_qval_seq = emp_qval)
+```
+
+```{r}
+reorder_by_ko <- function(df, id_col = "symbol") {
+  kos <- colnames(df) %>%
+    str_subset("^log2FC_.*_seq$") %>%
+    str_remove("^log2FC_") %>%
+    str_remove("_seq$") %>%
+    unique()
+  col_order <- c(
+    id_col,
+    unlist(map(kos, function(ko) {
+      c(
+        paste0("log2FC_", ko, "_seq"),
+        paste0("p_adj_" , ko, "_seq"),
+        paste0("log2FC_", ko, "_atac"),
+        paste0("p_adj_" , ko, "_atac")
+      )
+    }))
+  )
+  stopifnot(all(col_order %in% colnames(df)))
+  df %>% dplyr::select(all_of(col_order))
+}
+```
+
+```{r}
+get_top_changes <- function(df,
+                            ko,
+                            n            = 10,
+                            sort_by      = c("rna", "atac"),
+                            p_adj_thresh = 0.05) {
+  sort_by <- match.arg(sort_by)
+  
+  # build all four colnames
+  rna_fc  <- paste0("log2FC_", ko, "_seq")
+  rna_pa  <- paste0("p_adj_",  ko, "_seq")
+  atac_fc <- paste0("log2FC_", ko, "_atac")
+  atac_pa <- paste0("p_adj_",  ko, "_atac")
+  
+  # pick which to sort/filter by
+  if (sort_by == "rna") {
+    fc_col   <- rna_fc
+    padj_col <- rna_pa
+    other_fc <- atac_fc
+    other_pa <- atac_pa
+    other_mod <- "atac"
+  } else {
+    fc_col   <- atac_fc
+    padj_col <- atac_pa
+    other_fc <- rna_fc
+    other_pa <- rna_pa
+    other_mod <- "seq"
+  }
+  
+  # sanity check
+  needed <- c("symbol", rna_fc, rna_pa, atac_fc, atac_pa)
+  missing <- setdiff(needed, colnames(df))
+  if (length(missing)) {
+    stop("Missing columns in df: ", paste(missing, collapse = ", "))
+  }
+  
+  # pull & rename for convenience
+  df2 <- df %>%
+    dplyr::select(
+      symbol,
+      !!fc_col, 
+      !!padj_col,
+      !!other_fc,
+      !!other_pa
+    ) %>%
+    rename(
+      fc       = !!fc_col,
+      p_adj    = !!padj_col,
+      other_fc = !!other_fc,
+      other_pa = !!other_pa
+    ) %>%
+    filter(
+      !is.na(fc),
+      p_adj < p_adj_thresh
+    )
+  
+  # slice out top up and top down
+  top_up <- df2 %>%
+    arrange(desc(fc)) %>%
+    slice_head(n = n)
+  
+  top_down <- df2 %>%
+    arrange(fc) %>%
+    slice_head(n = n)
+  
+  # restore original names
+  restore_names <- function(tbl) {
+    tbl %>% rename(
+      !!paste0("log2FC_", ko, "_", sort_by) := fc,
+      !!paste0("p_adj_",  ko, "_", sort_by) := p_adj,
+      !!paste0("log2FC_", ko, "_", other_mod) := other_fc,
+      !!paste0("p_adj_",  ko, "_", other_mod) := other_pa
+    )
+  }
+  
+  list(
+    upregulated   = restore_names(top_up),
+    downregulated = restore_names(top_down)
+  )
+}
+
+```
+
+```{r}
+
+write.csv(joined, "results/public/GSE171737_rna_atac_integrated.csv", row.names = FALSE)
+
+```
+
+### Data Visualization
+
+```{r}
+ggplot(joined, aes(x=log2FC_FOXK1_seq, y=log2FC_FOXK1_atac)) +
+  geom_point(alpha=0.4) +
+  geom_smooth(method="lm", color="black") +
+  labs(
+    x = "ATAC log2FC (KO vs Ctrl)",
+    y = "RNA log2FC (KO vs Ctrl)",
+    title = "Bulk ATAC vs RNA Integration"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+plot_volcano <- function(df, ko, lfc_cut = 1, p_cut = 0.05) {
+  lfc_col  <- paste0("log2FC_", ko, "_atac")
+  pval_col <- paste0("p_adj_",  ko, "_atac")
+  if (!all(c("symbol", lfc_col, pval_col) %in% colnames(df))) {
+    stop("Required columns missing: ", paste(c("symbol", lfc_col, pval_col), collapse=", "))
+  }
+  
+  df2 <- df %>%
+    transmute(
+      symbol   = symbol,
+      lfc      = .data[[lfc_col]],
+      pval     = .data[[pval_col]],
+      negLogP  = -log10(pval),
+      sig      = case_when(
+        !is.na(pval) & pval <  p_cut & lfc >  lfc_cut  ~ "Up",
+        !is.na(pval) & pval <  p_cut & lfc < -lfc_cut  ~ "Down",
+        TRUE                                         ~ "NS"
+      )
+    )
+  
+  ggplot(df2, aes(x = lfc, y = negLogP, color = sig)) +
+    geom_point(alpha = 0.6) +
+    scale_color_manual(values = c(Up="red", Down="blue", NS="gray")) +
+    geom_vline(xintercept = c(-lfc_cut, lfc_cut), linetype="dashed") +
+    geom_hline(yintercept = -log10(p_cut),          linetype="dashed") +
+    geom_text_repel(
+      data = filter(df2, sig != "NS"),
+      aes(label = symbol),
+      size     = 3,
+      max.overlaps = 20
+    ) +
+    labs(
+      title = paste("Volcano:", ko, "KO (ATAC-Seq)"),
+      x     = paste0("log2FC (", ko, ")"),
+      y     = "-log10(adj. p-value)"
+    ) +
+    theme_minimal()
+}
+
+```
+
+```{r}
+# concordant = identical behavior in both ATAC and RNA
+# discordant = differing behavior across seq types
+
+joined <- joined %>%
+  dplyr::mutate(
+    concordant = sign(log2FC_ATAC) == sign(log2FC_RNA)
+  )
+
+table(joined$concordant)
+
+upup <- joined %>%
+  filter(log2FC_ATAC>0, log2FC_RNA>0) %>%
+  pull(Geneid)
+```
