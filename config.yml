@@ -1,0 +1,16 @@
+
+# Global Paths
+srcDir: "./src"
+resultsHome: "./results"
+dataHomeLocal: "/media/michael/Nguyen-Lab/sequencing-data"
+dataHomeRemote: "../sequencing-data"
+defaultExclude: ["meta", "Raw_FASTQ", "all-sample", "process"]
+
+# Filtering
+useFilter: true
+minFeatRNA: 200
+mtExprLimit: 20
+
+# Dimension Reduction
+numPCs: 30
+clusterResolution: 1

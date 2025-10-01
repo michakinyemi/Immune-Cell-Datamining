@@ -3,7 +3,7 @@
 #' --== Run Dimension Reduction ==--
 #' 
 #' 
-run_dim_reduction <- function(seuratObject, reduction.target=NULL,
+runDimReduction <- function(seuratObject, reduction.target=NULL,
                               reduction.name="orig.pca",
                               numPCs=NULL, dimsUsed=NULL) {
   
@@ -51,8 +51,10 @@ run_dim_reduction <- function(seuratObject, reduction.target=NULL,
 
 #' --== Perform Integration ==--
 #' Integrate a list of Seurat objects using either CCA or SCT methods.
-#' 
-perform_integration <- function(sampleList, method="CCA",
+#' Used for the simple merging of samples without integration
+#' or normalization techniques (i.e. pre-integrated public data,
+#' or previously analyzed objects)
+integrateSamples <- function(sampleList, method="CCA",
                                 numPCs=NULL, dimsUsed=NULL,
                                 cellCycleRegression=TRUE) {
   
@@ -176,7 +178,7 @@ perform_integration <- function(sampleList, method="CCA",
 #' --== Regress Cell Cycle Genes ==--
 #' 
 #' 
-regress_cell_cycle <- function(seuratObject, reduction.target="integrated.cca",
+regressCellCycle <- function(seuratObject, reduction.target="integrated.cca",
                                reduction.name="regressed.cca",
                                numPCs=NULL, dimsUsed=NULL) {
   

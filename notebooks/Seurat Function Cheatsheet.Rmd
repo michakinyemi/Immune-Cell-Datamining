@@ -1,0 +1,72 @@
+# Seurat Function Cheatsheet
+
+I suggest getting familiar with the visualization functions shown in this notebook. While the pipeline can automate the bulk generation of more "summary-oriented" figures, knowing how to manually display certain aspects of the dataset will help a lot in both exploratory analysis and troubleshooting.
+
+### Violin Plots
+
+------------------------------------------------------------------------
+
+```{r}
+
+VlnPlot(samples_sle, features = "FOXK1", log = TRUE, pt.size=0.5, group.by="cell_type")
+
+VlnPlot(treg_cluster, features = "FOXK1", log = TRUE, pt.size=0, group.by="sample")
+
+VlnPlot(treg_cluster, features = c("FOXK1"), log = FALSE, pt.size=1, group.by="orig.ident", layer="counts")
+
+```
+
+```{r}
+
+# Ridge Plots
+RidgePlot(samples_sle, features = c("FOXK1", "CD4A"), ncol = 2, group.by = "cell_type")
+
+# Feature Plots
+FeaturePlot(bm_samples, cols=c("grey", "red"), reduction = "regressed.tsne", features = "FOXK1", split.by = "orig.ident")
+
+FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = MARKERS$`T reg`)
+
+```
+
+### Dimension Reduction Plots
+
+------------------------------------------------------------------------
+
+```{r}
+
+STYLE <- list(
+  "DimPlot.label" = TRUE,
+  "DimPlot.label.size" = 5,
+  "DimPlot.pt.size" = NULL,
+)
+
+
+# Group By Cell Type
+DimPlot(samples_human, reduction="orig.pca.umap", label = TRUE, pt.size = 0.5, group.by="orig.pca.clusters")
+
+DimPlot(samples_sle, reduction="orig.pca.umap", label = TRUE, group.by="orig.pca.clusters", raster=FALSE)
+
+DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by="SingleR_main", raster=FALSE) + NoLegend()
+
+DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, label.size=8, group.by="SingleR_fine", raster=FALSE) + NoLegend()
+
+groups <- c("SingleR_main", "SingleR_fine", "integrated.cca.clusters")
+
+for (name in groups) {
+  DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by=name, raster=FALSE) + NoLegend()
+}
+
+DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by="integrated.cca.clusters", raster=FALSE) + NoLegend()
+
+DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by="cell_type", raster=FALSE) + NoLegend()
+
+```
+
+```{r}
+# Exhaust Test
+DimPlot(samples, reduction="umap.exhaust", label = TRUE, pt.size = 0.5, group.by="GvHD_group")
+
+DimPlot(samples_tcell, reduction="tsne.exhaust", label = TRUE, pt.size = 0.5)
+
+FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = "FOXP3")
+```

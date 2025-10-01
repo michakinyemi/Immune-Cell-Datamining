@@ -32,9 +32,9 @@ library(pheatmap)
 
 ```
 
-# Differential Expression Analysis
+# Immune Cell Datamining
 
-## 0. Initializing Environment
+The pipeline does the bulk of the pre-processing on its own.
 
 ```{r}
 
@@ -57,42 +57,35 @@ CONFIG <- list(
   "clusterResolution" = 1
 )
 
-source(paste(CONFIG$srcDir, "util.R", sep="/"))
-.initialize_env(remote=FALSE)
+source(file.path(CONFIG$srcDir, "util.R"))
+.init_env(remote=FALSE)
 ```
 
-```{r}
-
-Dermis_samples <- readRDS("/media/michael/Nguyen-Lab/sequencing-data/public/GSE191335/Dermis_samples.rds")
-
-Epi_samples <- readRDS("/media/michael/Nguyen-Lab/sequencing-data/public/GSE191335/Epi_samples.rds")
-de_markers_epi <- read.csv("/media/michael/Nguyen-Lab/sequencing-data/public/GSE191335/de_markers_epi.csv")
-
-bm_samples <- readRDS("/media/michael/Nguyen-Lab/sequencing-data/public/GSE175604/bm_samples.rds")
-de_markers_bm <- read.csv("/media/michael/Nguyen-Lab/sequencing-data/public/GSE175604/de_markers_bm.csv")
-
-pb_samples <- readRDS("/media/michael/Nguyen-Lab/sequencing-data/public/GSE175604/pb_samples.rds")
-
-samples <- list(
-  
-)
-```
-
-## 1. General Processing
+## Preprocessing
 
 ------------------------------------------------------------------------
 
-### Adding New Metadata
+### Metadata Wrangling
 
-```{r}
+```{r "Adding New Metadata"}
 
-samples$condition <- ifelse(samples$sample %in% c("30_HUMAN_GVHD_A6_G1", "31_HUMAN_GVHD_A7_G1", "32_HUMAN_GVHD_A8_G1"), "healthy", "disease")
+samples_sle$condition <- NA
 
+# Classify condition using identifier substring (i.e. `_SLE_` or `_HD_`)
+names <- unique(samples_sle$orig.ident)
+
+disease <- grep("SLE", names, value = TRUE)
+samples_sle$condition[samples_sle$orig.ident %in% disease] <- "SLE"
+
+
+healthy <- grep("HD", names, value = TRUE)
+samples_sle$condition[samples_sle$orig.ident %in% healthy] <- "Healthy"
+
+
+# samples$condition <- ifelse(samples$sample %in% c("30_HUMAN_GVHD_A6_G1", "31_HUMAN_GVHD_A7_G1", "32_HUMAN_GVHD_A8_G1"), "healthy", "disease")
 ```
 
-### Adjusting Metadata
-
-```{r}
+```{r "Adjusting Metadata"}
 
 # Duplicate Metadata Column
 samples@meta.data$cell_type <- samples@meta.data$seurat_clusters
@@ -133,9 +126,7 @@ merged_gvhdmeta <- do.call(rbind, split_gvhdmeta)
 
 ```
 
-### Integrating Existing Metadata
-
-```{r}
+```{r "Integrating Existing Metadata"}
 # Split & remerge metadata tables
 split_gvhdmeta <- split(gvhdmeta, gvhdmeta$experiment)
 
@@ -173,20 +164,15 @@ print(unique(samples@meta.data$orig.sample))
 
 samples@meta.data$orig.sample[samples@meta.data$orig.sample == "GSM6008408_PREP0128_ESint12162A_G9v1_SCb_BWH4_48h"] <- "48h"
 
-
 ```
 
-## 2. Dimension Reduction Analysis
+## Dimension Reduction Analysis
 
 ------------------------------------------------------------------------
-
-### Dimension Reduction
 
 Calculate the subset of features that exhibit high cell-to-cell variation in the dataset (i.e. they are highly expressed in some cells and lowly expressed in others).
 
 It is used by the `RunPCA()` function rather than all of the genes to avoid redundant comparisons (such as expression of fundamental cell cycle genes?)
-
-### Check Principal Components
 
 Tweaking which PCs (`dims` parameter) are being used is a crucial step in filtering out irrelevant variances (Ex: Cell cycle genes).
 
@@ -213,7 +199,7 @@ DimHeatmap(samples, reduction="orig.pca", dims = c(8, 10))
 (i.e. cell cycle, HLA, or mitochondrial genes)
 
 ```{r}
-
+# Regressing Out Unwanted Variation
 samples <- regress_cell_cycle(samples)
 
 ```
@@ -227,42 +213,22 @@ samples <- regress_cell_cycle(samples)
 # Check For Batch Effect
 fig <- DimPlot(samples, reduction="integrated.cca", group.by="orig.sample")
 
+# Generate Batch Effect Comparison Plot
 visualize_batch_effect(Epi_samples)
 
 ```
 
-### Visualizing Reduction Map
-
-```{r}
-
-# Generate Dimension Reduction Plot
-visualize_batch_effect(Epi_samples)
-
-# Group By Cell Properties
-DimPlot(Dermis_samples, reduction="regressed.umap", label = TRUE, pt.size = 0.5, group.by="seurat_clusters")
-
-DimPlot(samples, reduction="umap.exhaust", label = TRUE, pt.size = 0.5, group.by="GvHD_group")
-
-DimPlot(samples_tcell, reduction="tsne.exhaust", label = TRUE, pt.size = 0.5)
-
-
-FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = "FOXP3")
-```
-
-## 3. Marker Identification & Cell Type Annotation
+## Marker Identification
 
 ------------------------------------------------------------------------
 
-### Identify Cluster Markers
-
-```{r}
+```{r "Identify Cluster Markers"}
 
 find_gene(Epi_samples, "FX")
 
 # Identify Cluster Markers
 de_markers_human <- FindAllMarkers(samples_human, only.pos=TRUE, min.pct=0.10,
                              logfc.threshold=0.25, group.by="integrated.cca.clusters")
-
 
 
 de_markers <- FindMarkers(samples, only.pos = TRUE,
@@ -276,46 +242,42 @@ top_markers <- print_top_markers(de_markers_dermis, n=20)
 topMarkers <- de_markers_epi %>% group_by(cluster) %>% top_n(n=20, wt=avg_log2FC)
 View(topMarkers)
 
+
+# View all identified markers matching a list of genes
+potential_clusters <- subset(all_markers_sle, gene %in% MARKERS$Treg)
+table(potential_clusters$cluster)
+
+
+```
+
+```{r}
 nk.markers <- FindConservedMarkers(ifnb, ident.1 = "NK", grouping.var = "stim", verbose = FALSE)
 
 write.csv(topMarkers, "results/topMarkers.csv", row.names = FALSE)
 
 # Remember that clusters /= PCs
-# Markers are identified PER CLUSTER
+# Markers are identified PER CLUSTER (or other specified grouping)
 
 Idents(samples)
 
 de_genes <- rownames(de_markers)
 de_expr <- GetAssayData(samples1a, slot = "data")[de_genes, ]
+```
+
+## Cell Type Annotation
+
+```{r "Annotate Cell Types (Using Clusters)"}
+
+# Cell Type
+samples_sle$cell_type <- samples_sle@active.ident
+
+samples_sle$cell_type[samples_sle@active.ident %in% c(7, 10, 18, 23)] <- "Treg"
+
+treg_cluster <- subset(samples_mouse, subset = SingleR_main == "T cells")
 
 ```
 
-### Annotate Cell Types (Using Clusters)
-
-```{r}
-
-new.cluster.ids <- c("Naive CD4 T", "CD14+ Mono", "Memory CD4 T", "B", "CD8 T", "FCGR3A+ Mono", "NK", "DC", "Platelet","a","b","c","d","e","f","g")
-
-names(new.cluster.ids) <- levels(mergedSamples)
-
-mergedSamples <- RenameIdents(mergedSamples, new.cluster.ids)
-
-samples$GvHD_group <- gsub("control", "Control", samples$GvHD_group)
-
-# View All Cluster (Idents) Names
-levels(samples)
-
-samples <- RenameIdents(samples, '8'="Treg")
-
-samples$cell.type <- samples@active.ident
-
-treg_cluster <- subset(Dermis_samples, subset = seurat_clusters == c(4))
-
-```
-
-### Annotate Cell Types (Using N-Expression)
-
-```{r}
+```{r "Annotate Cell Types (Using N-Expression)"}
 
 expr_mat <- GetAssayData(Dermis_samples, slot = "data")
 
@@ -331,40 +293,39 @@ rm(expr_mat, common_genes, expr_sub, marker_counts, cells_to_keep)
 
 ```
 
-### Annotate Cell Types (Using SingleR)
-
-```{r}
+```{r "Annotate Cell Types (Using SingleR)"}
 
 library(SingleR)
 library(celldex)
 
-ref_human <- celldex::HumanPrimaryCellAtlasData()
+# ref_human <- celldex::HumanPrimaryCellAtlasData()
+# ref_mouse <- celldex::MouseRNAseqData()
 
-sce_human <- as.SingleCellExperiment(samples_human)
+sce_sle <- as.SingleCellExperiment(samples_sle)
 
 # Main Cell Type Labeling
 singler_results_main <- SingleR(
-  test = sce_human,
+  test = sce_sle,
   ref = ref_human,
   labels = ref_human$label.main
 )
 
-samples_human$SingleR_main <- singler_results_main$labels
+samples_sle$SingleR_main <- singler_results_main$labels
 
 # Fine Cell Type Labeling
 singler_results_fine <- SingleR(
-  test = sce_human,
+  test = sce_sle,
   ref = ref_human,
   labels = ref_human$label.fine
 )
 
-samples_human$SingleR_fine <- singler_results_fine$labels
+samples_sle$SingleR_fine <- singler_results_fine$labels
 
-treg_singler <- subset(Dermis_samples, ident=c("T_cell:Treg:Naive"))
+samples_test <- subset(samples_human, ident=8)
 
 ```
 
-### Creating Cell Type Subsets
+## Creating Cell Type Subsets
 
 ```{r}
 levels(samples)
@@ -378,124 +339,24 @@ samples_cd4 <- subset(samples, ident=c("CD4 Treg", "CD4 Th1", "CD4 T cm", "CD4 m
 samples_mono <- subset(samples, ident=c("Monocytes", "Macrophages", "DCs"))
 
 
-samples_tcell <- run_dim_reduction(samples_tcell)
-
-AverageExpression(treg_subset_scaled, features=c("TIGIT", "CD8A", "CD8B", "CD4", "FOXK1", "MTOR", "HIF1A"), group.by=c("orig.ident"))
-
 # Check sample composition of subset
 table(treg_subset$orig.ident)
 
 ```
 
-### Cell Type Proportions Plot
-
-```{r}
-
-# Create a data frame with cell type and sample type information
-samples_noctrl <- subset(samples, idents = c("control_1", "control_2", "control_3"), invert = TRUE)
-samples_noctrl_cd4 <- subset(samples_noctrl, idents = c("CD4 memory", "CD4 Th17", "CD4 Treg", "CD4 Th1", "CD4 T cm" ))
-
-cell_metadata <- pb_samples_cca@meta.data[, c("SingleR_label", "orig.ident")]
-
-# Calculate Individual Proportions
-proportions <- cell_metadata %>%
-  group_by(orig.ident, SingleR_label) %>%
-  summarise(count = n()) %>%
-  mutate(proportion = count / sum(count)) %>%
-  ungroup()
-
-# Calculate average proportions
-average_proportions <- proportions %>%
-  group_by(SingleR_label) %>%
-  summarise(average_proportion = mean(proportion)) %>%
-  mutate(samplename = "Average")
-
-# Normalize average proportions
-total_average_proportion <- sum(average_proportions$average_proportion)
-average_proportions <- average_proportions %>%
-  mutate(proportion = average_proportion / total_average_proportion) %>%
-  dplyr::select(-average_proportion)
-
-# Combine proportions and normalized average proportions
-combined_proportions <- bind_rows(proportions, average_proportions)
-
-# Add a dummy column for spacing
-combined_proportions <- combined_proportions %>%
-  mutate(orig.ident = factor(orig.ident, levels = c(unique(proportions$orig.ident), "", "Average")))
-
-# Plot proportions with a wider average bar and spacing
-ggplot() +
-  # Plot individual sample proportions
-  geom_bar(data = combined_proportions %>% filter(orig.ident != "Average" & samplename != ""),
-           aes(x = orig.ident, y = proportion, fill = SingleR_label),
-           stat = "identity") +
-  # Plot average proportions with a wider bar
-  geom_bar(data = combined_proportions %>% filter(orig.ident == "Average"),
-           aes(x = orig.ident, y = proportion, fill = SingleR_label),
-           stat = "identity", width = 2) +  # Adjust the width for the average bar
-  theme_minimal() +
-  labs(title = "Cell Type Proportions (CD4 Subset)",
-       x = "Sample Type",
-       y = "Proportion") +
-  scale_y_continuous(labels = scales::percent) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))
-
-```
-
-## 4. Differential Expression Analysis
+## Analyzing Expression Levels
 
 ------------------------------------------------------------------------
 
-### Volcano Plots of Markers
-
 ```{r}
 
-library(ggplot2)
-
-ggplot(de_markers_neg, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
-  geom_point(aes(color = ifelse(p_val_adj < 5e-250, "Significant", "Not Significant")), 
-             alpha = 0.8, size = 2) +
-  scale_color_manual(values = c("Significant" = "red", "Not Significant" = "black")) +
-  labs(title = "Volcano Plot",
-       x = "Log2(Fold Change)",
-       y = "-log10(Adjusted P-value)",
-       color = "Significance") +
-  theme_classic() +
-  theme(
-    plot.title = element_text(hjust = 0.5),
-    legend.position = "top"
-  ) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue")
+AverageExpression(samples_sle, features=c("TIGIT", "CD8A", "CD8B", "CD4", "FOXK1", "MTOR", "HIF1A"), group.by=c("condition", "cell_type"))
 
 ```
 
-### Miscellaneous Figures
+```{r "Miscellaneous Figures"}
 
-```{r}
-
-# Violin Plots 
-VlnPlot(samples, features = MARKERS$Exhaust, log = TRUE, pt.size=0, group.by="celltype")
-
-VlnPlot(samples, features = MARKERS$Glycolysis, log = TRUE, pt.size=0, group.by="GvHD_group")
-
-VlnPlot(treg_cluster, features = c("FOXK1"), log = FALSE, pt.size=1, group.by="orig.ident", layer="counts")
-
-
-# Ridge Plots
-RidgePlot(Epi_samples, features = c("FOXK1", "CD4A"), ncol = 2, group.by = "orig.ident")
-
-# Feature Plots
-FeaturePlot(bm_samples, cols=c("grey", "red"), reduction = "regressed.tsne", features = "FOXK1", split.by = "orig.ident")
-
-FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = MARKERS$`T reg`)
-
-```
-
-```{r}
-
-
-counts <- GetAssayData(bm_samples, slot = "counts")
+counts <- GetAssayData(samples_sle, slot = "counts")
 
 max_counts_per_cell <- apply(counts, 2, max)
 
@@ -516,7 +377,7 @@ cat("Highest single gene count is", max_read,
     "in cell", cell_with_max,
     "for gene", gene_at_max, "\n")
 
-target <- "ENO1"
+target <- "FOXK1"
 
 foxk1_counts <- counts[target, ]
 
@@ -528,9 +389,7 @@ cat(target, "max count:", max_count, "\n")
 cat(target, "min count:", min_count, "\n")
 ```
 
-### Primary Heatmap
-
-```{r}
+```{r "Primary Heatmap"}
 
 find_gene(samples, "CXCR3")
 
@@ -545,7 +404,7 @@ sparse_mat <- AverageExpression(pb_samples_cca,
                                 assay="RNA",
                                 layer = "scale.data",
                                 features = gene_list,
-                                group.by = c("orig.ident"))
+                                group.by = c("condition"))
 
 mat <- as.matrix(sparse_mat$RNA)
 
@@ -553,112 +412,7 @@ mat[is.na(mat)] <- 0 # Below average doesn't mean 0 expression
 
 ```
 
-```{r}
-
-# Set up annotations
-unique_combinations <- colnames(mat)
-
-anno_row <- data.frame(
-  Pathway = factor(rep(c("Glycolysis", "T Cell Markers"), c(4, 2)))
-)
-
-anno_colors <- list(
-  State = c("white", "firebrick"),
-  CellType = c("white", "firebrick"),
-  Pathway = c("Glycolysis" = "#7570B3", "T Cell Markers" = "#E7298A")
-)
-
-split_groups <- strsplit(unique_combinations, "_")
-
-anno_col <- data.frame(
-  State = sapply(split_groups, "[[", 2),
-  CellType = sapply(split_groups, "[[", 1)
-)
-
-rownames(anno_col) <- colnames(mat)
-
-```
-
-```{r}
-
-figAvgExp <- pheatmap(
-  mat,
-  #annotation_col = anno_col,
-  
-  col = colorRampPalette(c("navy", "white", "firebrick3"))(50),
-  
-  # breaks = seq(-1,1, length.out=(100 + 1)),
-  
-  cluster_cols = FALSE,
-  cluster_rows = TRUE,
-  angle_col = "45",
-  gaps_col = seq(1, by = 1, length.out = 1)
-)
-
-ggsave("figures/Average Expression (via Scaled Clustering).png", figAvgExp, width=8, height=6, dpi=300)
-
-
-DotPlot(treg_singler, features = gene_list, cols = c("blue", "red"),
-        dot.scale = 8, group.by = "orig.ident") +
-        RotatedAxis()
-
-ggsave("figures/Dot Plot (via SingleR).png", figDotPlot, width=8, height=6, dpi=300)
-
-
-
-DotPlot(bm_samples, features=gene_list)
-
-rm(cell_list, samples_subset, sparse_mat, mat, unique_combinations)
-
-```
-
-### Highly Variable Gene Targets
-
-```{r}
-
-# Calculate percent of cells expressing gene
-threshold <- 0
-
-df <- FetchData(pb_samples_cca2, vars = c("FOXK1", "orig.ident")) %>%
-  mutate(expressed = FOXK1 > threshold)
-
-df_summary <- df %>%
-  group_by(orig.ident, expressed) %>%
-  summarise(n = n(), .groups = "drop_last") %>%
-  mutate(prop = n / sum(n))
-
-ggplot(df_summary, aes(x = orig.ident, y = prop, fill = expressed)) +
-  geom_bar(stat = "identity", position = "fill") +
-  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
-            position = position_fill(vjust = 0.5),
-            color = "white", size = 3) +
-  ylab("Proportion of expressing cells") +
-  ggtitle("FOXK1 expression rate in Tregs")
-
-table(df$orig.ident)
-
-# Compare expression only in expressing cells
-df_nonzero <- df %>% filter(FOXK1 > threshold)
-
-table(df_nonzero$orig.ident)
-
-ggplot(df_nonzero, aes(x = orig.ident, y = FOXK1)) +
-  geom_violin() +
-  ggtitle("FOXK1 expression in expressing Tregs only")
-
-wilcox.test(FOXK1 ~ orig.ident, data = df_nonzero)
-
-FindMarkers(bm_samples2, group.by = "orig.ident", ident.1 = "disease", ident.2 = "healthy", test.use = "MAST", features = "FOXK1")
-
-AverageExpression(treg_sct, features=c("TIGIT", "CD8A", "CD8B", "CD4", "FOXK1", "MTOR", "HIF1A"), group.by=c("orig.ident"))
-
-rm(threshold, df, df_nonzero)
-```
-
-### Investigating Exhausted Tc Populations
-
-```{r}
-
+```{r "Investigating Exhausted Tc Populations"}
 
 # --== Subset By Cluster ==--
 tSubset <- subset(samples, idents = c("T Cells", "CD4 T Cells", "CD8 T Cells"))
@@ -697,28 +451,139 @@ exhaustSubset <- subset(seurat_obj, subset = RNA, gene_symbol = gene_of_interest
 
 ```
 
-## 5. Gene Network Analysis
+## Pseudobulking Analysis
+
+```{r}
+
+counts <- GetAssayData(samples_sle, slot = "counts")  # raw counts
+meta   <- samples_sle@meta.data
+
+# Define grouping
+meta$group <- paste(meta$orig.ident, meta$cell_type, sep = "_")
+
+# Collapse counts into pseudobulk matrix
+pseudobulk_counts <- do.call(cbind, lapply(unique(meta$group), function(g) {
+  cells <- rownames(meta[meta$group == g, ])
+  if (length(cells) == 1) {
+    as.numeric(counts[, cells, drop = FALSE])  # force numeric
+  } else {
+    rowSums(counts[, cells, drop = FALSE])
+  }
+}))
+
+# Assign proper dimnames
+rownames(pseudobulk_counts) <- rownames(counts)
+colnames(pseudobulk_counts) <- unique(meta$group)
+
+# Make sure it's integer, as DESeq2 requires
+storage.mode(pseudobulk_counts) <- "integer"
+
+pb_meta <- data.frame(
+  sample    = sub("_(.*)$", "", colnames(pseudobulk_counts)),
+  cell_type = sub(".*_", "", colnames(pseudobulk_counts))
+)
+
+# Add condition from Seurat metadata
+# Make sure sample IDs are consistent
+pb_meta$sample <- sub("_(.*)$", "", colnames(pseudobulk_counts))
+
+# Build sample-to-condition lookup
+sample_conditions <- meta[!duplicated(meta$orig.ident), c("orig.ident", "condition")]
+rownames(sample_conditions) <- sample_conditions$orig.ident
+
+# Map condition for each pseudobulk column
+pb_meta$condition <- sample_conditions[as.character(pb_meta$sample), "condition"]
+
+# Restore rownames as pseudobulk column names
+rownames(pb_meta) <- colnames(pseudobulk_counts)
+
+
+```
+
+```{r}
+
+dds <- DESeqDataSetFromMatrix(
+  countData = pseudobulk_counts,
+  colData   = pb_meta,
+  design    = ~ cell_type + condition
+)
+
+dds <- DESeq(dds)
+
+res <- results(dds, contrast = c("condition", "SLE", "Healthy"))
+```
+
+```{r}
+
+# Suppose you have a vector of target genes
+targets <- MARKERS$Interest
+
+df <- as.data.frame(res)
+df$gene <- rownames(df)
+df <- df %>% filter(gene %in% targets)
+
+df$negLog10Padj <- -log10(df$padj)
+
+ggplot(df, aes(x = gene, y = log2FoldChange)) +
+  geom_point(aes(size = negLog10Padj, color = log2FoldChange)) +
+  scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  scale_size_continuous(name = "-log10 padj") +
+  theme_minimal() +
+  coord_flip() +
+  labs(x = "Gene", y = "log2 Fold Change", color = "log2FC")
+
+```
+
+```{r}
+vsd <- vst(dds)  # variance stabilizing transformation
+mat <- assay(vsd)[targets, ]  # subset to target genes
+
+
+pheatmap(mat, scale = "row", cluster_cols = TRUE, cluster_rows = TRUE,
+         main = "Expression of target genes")
+
+annotation_col <- as.data.frame(colData(vsd)[, c("condition","cell_type")])
+pheatmap(mat, scale="row", cluster_cols=FALSE, cluster_rows=FALSE,
+         annotation_col=annotation_col)
+
+```
+
+```{r}
+
+library(EnhancedVolcano)
+EnhancedVolcano(df,
+                lab = df$gene,
+                x = 'log2FoldChange',
+                y = 'padj',
+                pCutoff = 0.05,
+                FCcutoff = 1)
+
+
+```
+
+## Gene Network Analysis
 
 ------------------------------------------------------------------------
 
 ### Gene Module Scoring
+
+|          **Pathway**          | **Gene Ontology ID** |
+|:-----------------------------:|:--------------------:|
+|   Oxidative Phosphorylation   |     `GO:0006119`     |
+|           Mitophagy           |     `GO:0000422`     |
+|           Autophagy           |     `GO:0006914`     |
+|     Fatty Acid Oxidation      |     `GO:0019395`     |
+| Cholesterol Metabolic Process |     `GO:0008203`     |
+|           TCA Cycle           |     `GO:0006099`     |
+|            Hypoxia            |                      |
+|          Senescence           |                      |
+|      Gloycolytic Process      |     `GO:0006096`     |
 
 ```{r}
 
 # library(org.Hs.eg.db)
 # library(org.Mm.eg.db)
 
-# Oxidation Phosphorylation (GO:0006119)
-# Mitophagy (GO:0000422)
-# Autophagy (GO:0006914)
-# Fatty Acid Oxidation (GO:0019395)
-# Cholesterol Metabolic Process (GO:0008203)
-# TCA Cycle (GO:0006099)
-
-# Hypoxia
-# Senescence
-
-# Glycolytic Process (GO:0006096)
 glycolysis_genes <- AnnotationDbi::select(org.Hs.eg.db, 
                                           keys = "GO:0006096", 
                                           columns = c("SYMBOL"), 
@@ -913,7 +778,7 @@ simpleNetwork(NetworkData,zoom = T)
 
 ```
 
-## 6. Pseudotime Analysis
+## Pseudotime Analysis
 
 ------------------------------------------------------------------------
 

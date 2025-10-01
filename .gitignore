@@ -5,6 +5,7 @@
 *.Ruserdata
 .Rproj.user
 markers.json
+markers.yml
 gene_list.txt
 renv/
 data/

@@ -5,7 +5,7 @@
 # #SBATCH --mail-type=END
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=48
+#SBATCH --cpus-per-task=16
 #SBATCH --time=10:00:00
 # #SBATCH --error=myjobresults-%J.err
 #SBATCH --output=myjobresults-%J.out
@@ -18,6 +18,6 @@ module load anaconda
 module load libpng
 conda activate immune_r
 
-Rscript main.R
+Rscript samples/GSE298578_SLE.R
 
 

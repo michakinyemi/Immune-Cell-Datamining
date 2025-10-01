@@ -3,7 +3,7 @@
 #' Parse the provided sample directory and generate
 #' a Seurat Object for each identified sample.
 #' 
-load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector(),
+loadDataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector(),
                          convertFeatures=FALSE, sampleMetaCol=NULL) {
   
   # Validate environment and argument setup
@@ -18,12 +18,13 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
     cat("Error: Please only specify one include or exclude list, not both.")
     return(-1)
   } else {
-    if (length(excludeList) != 0) {
+    if (length(includeList) != 0) {
+      inclusionMode = TRUE
+    
+    # Enter exclusion mode by default (to ensure exclusion of meta folders)
+    } else {
       exclusionMode = TRUE
       excludeList <- append(excludeList, CONFIG$defaultExclude)
-    }
-    else if (length(includeList) != 0) {
-      inclusionMode = TRUE
     }
   }
 
@@ -32,10 +33,9 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
   cat("Beginning to Load Dataset:", SAMPLE_DATA$datasetName, "\n", sep="")
   cat("Parsing Directory:\n", final_dir, "\n", sep="")
   
-  # List all identified directories (individual samples)
-  sampleDirList <- list.dirs(path=final_dir, recursive=FALSE)
-  
-  sampleList <- list()
+  sampleDirList <- list.dirs(path=final_dir,
+                             recursive=FALSE)
+  sampleList <- list() # The final list of accepted samples
   tempList <- sampleDirList
   
   # Single Sample Setup
@@ -84,7 +84,8 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
     sampleName = basename(sampleDir)
     cat(sprintf("\nLoading Sample [%d/%d]: %s\n", i, sampleCount, sampleName))
     
-    if (format == "10X") {
+    if (format == "10x") {
+      
       data <- Seurat::Read10X(sampleDir)
       
       if (convertFeatures) {
@@ -93,11 +94,11 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
         data <- data[!duplicate_rows, ]
       }
       
-      sample <- CreateSeuratObject(counts=data, project=sampleName)
-      sample$orig.sample <- sampleName
+      sampleObj <- CreateSeuratObject(counts=data, project=sampleName)
+      sampleObj$orig.sample <- sampleName
       
       cat("Filtering Sample:", sampleName, "\n")
-      sample <- filter_sample(sample)
+      sampleObj <- filterSample(sampleObj)
       
     }
     
@@ -105,14 +106,14 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
       counts <- read.csv(file.path(sampleDir, "gene_counts.csv.gz"), row.names="X")
       counts <- as(as.matrix(counts), "dgCMatrix")
       
-      sample <- CreateSeuratObject(counts, project = sampleName)
+      sampleObj <- CreateSeuratObject(counts, project = sampleName)
       metadata <- read.csv(file.path(sampleDir, "barcodes_samples_info.csv.gz"))
       rownames(metadata) <- metadata$barcode
-      sample <- AddMetaData(sample, metadata)
-      sample$orig.sample <- sampleName
+      sampleObj <- AddMetaData(sampleObj, metadata)
+      sampleObj$orig.sample <- sampleName
       
       cat("Filtering Sample:", sampleName, "\n")
-      sample <- filter_sample(sample)
+      sampleObj <- filterSample(sampleObj)
     }
 
     else if (format == "parsebio") {
@@ -124,22 +125,22 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
       
       cell_meta <- read.csv(paste0(sampleDir, "/cell_metadata.csv"), row.names = 1)
       
-      sample <- CreateSeuratObject(mat, meta.data = cell_meta)
+      sampleObj <- CreateSeuratObject(mat, meta.data = cell_meta)
       
       cat("Filtering Sample:", sampleName, "\n")
-      sample <- filter_sample(sample)
+      sampleObj <- filterSample(sampleObj)
     }
     
     else if (format == "rdata") {
       load(file.path(sampleDir, paste0(sampleName, ".Rdata")))
-      sample <- data
-      sample$orig.sample <- sampleName
+      sampleObj <- data
+      sampleObj$orig.sample <- sampleName
     }
     
     # Handle splitting samples by metadata column
     if (!is.null(sampleMetaCol)) {
       cat("Splitting Sample by Metadata Column:", sampleMetaCol, "\n")
-      splitSamples <- SplitObject(sample, split.by = sampleMetaCol)
+      splitSamples <- SplitObject(sampleObj, split.by = sampleMetaCol)
       for (subName in names(splitSamples)) {
         sub <- splitSamples[[subName]]
         sub$orig.sample <- subName
@@ -148,7 +149,7 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
       }
     }
     else {
-      sampleList <- append(sampleList, list(sample))
+      sampleList <- append(sampleList, list(sampleObj))
     }
   }
   
@@ -164,7 +165,7 @@ load_dataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector()
 #' --== Filter Samples ==--
 #' 
 #' 
-filter_sample <- function(seuratObject) {
+filterSample <- function(seuratObject) {
   seuratObject$percent.mt <- PercentageFeatureSet(seuratObject,
                                                   pattern = "^MT-")
   
@@ -187,15 +188,7 @@ filter_sample <- function(seuratObject) {
 }
 
 
-#' --== Merge Samples ==--
-#' 
-#' 
-merge_samples <- function(sampleList) {
-  #' Used for the simple merging of samples without integration
-  #' or normalization techniques (i.e. pre-integrated public data,
-  #' or previously analyzed objects)
-  
-}
+
  
 
 

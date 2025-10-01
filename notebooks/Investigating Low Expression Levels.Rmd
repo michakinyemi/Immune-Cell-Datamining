@@ -1,0 +1,43 @@
+# Investigating Low Expression Levels Notebook
+
+```{r}
+
+# Calculate percent of cells expressing gene
+threshold <- 0
+
+df <- FetchData(pb_samples_cca2, vars = c("FOXK1", "orig.ident")) %>%
+  mutate(expressed = FOXK1 > threshold)
+
+df_summary <- df %>%
+  group_by(orig.ident, expressed) %>%
+  summarise(n = n(), .groups = "drop_last") %>%
+  mutate(prop = n / sum(n))
+
+ggplot(df_summary, aes(x = orig.ident, y = prop, fill = expressed)) +
+  geom_bar(stat = "identity", position = "fill") +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "white", size = 3) +
+  ylab("Proportion of expressing cells") +
+  ggtitle("FOXK1 expression rate in Tregs")
+
+table(df$orig.ident)
+
+# Compare expression only in expressing cells
+df_nonzero <- df %>% filter(FOXK1 > threshold)
+
+table(df_nonzero$orig.ident)
+
+ggplot(df_nonzero, aes(x = orig.ident, y = FOXK1)) +
+  geom_violin() +
+  ggtitle("FOXK1 expression in expressing Tregs only")
+
+wilcox.test(FOXK1 ~ orig.ident, data = df_nonzero)
+
+FindMarkers(bm_samples2, group.by = "orig.ident", ident.1 = "disease", ident.2 = "healthy", test.use = "MAST", features = "FOXK1")
+
+AverageExpression(treg_sct, features=c("TIGIT", "CD8A", "CD8B", "CD4", "FOXK1", "MTOR", "HIF1A"), group.by=c("orig.ident"))
+
+rm(threshold, df, df_nonzero)
+
+```
