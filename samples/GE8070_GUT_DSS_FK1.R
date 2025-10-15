@@ -15,10 +15,12 @@ include_samples <- c("14_GUT_DSS_FK1FL_2", "15_GUT_DSS_FK1FL_3",
 
 # --== Run Pipeline ==--
 
-samples_mouse <- load_dataset(SAMPLE_DATA, includeList = include_samples)
+samples_mouse <- loadDataset(SAMPLE_DATA, includeList=include_samples)
 
-samples_mouse <- perform_integration(samples_mouse)
+samples_mouse <- integrateSamples(samples_mouse, method="SCT")
 
-samples_mouse <- run_dim_reduction(samples_mouse, reduction.target="orig.pca")
+samples_mouse <- annotateSinglerLabels(samples_mouse, species="mouse")
 
-visualize_batch_effect(samples_mouse)
+saveRDS(samples_mouse, "data/samples_mouse.rds")
+
+findAllMarkers(samples_mouse, assay="SCT", group.by="clusters.integrated", fileName="mouse")

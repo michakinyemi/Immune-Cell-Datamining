@@ -13,28 +13,16 @@ SAMPLE_DATA <- list(
 
 # --== Run Pipeline ==--
 
-samples_sle <- loadDataset(SAMPLE_DATA)
+# samples_sle <- loadDataset(SAMPLE_DATA)
 
-samples_sle <- integrateSamples(samples_sle)
+# samples_sle <- integrateSamples(samples_sle, method="SCT")
 
-samples_sle <- runDimReduction(samples_sle, reduction.target="orig.pca")
-
-visualize_batch_effect(samples_sle)
-
-saveRDS(samples_sle, "data/samples_sle.rds")
-
-library(presto)
+# saveRDS(samples_sle, "data/samples_sle.rds")
 
 samples_sle <- readRDS("data/samples_sle.rds")
 
-samples_sle <- annotate_singler_labels(samples_sle)
+# samples_sle <- annotateSinglerLabels(samples_sle)
 
-saveRDS(samples_sle, "data/samples_sle.rds")
+# saveRDS(samples_sle, "data/samples_sle.rds")
 
-# samples_sle@misc$mainReduction <- "integrated.cca"
-
-# find_all_markers(samples_sle)
-
-
-
-
+findAllMarkers(samples_human, assay="SCT", group.by="clusters.integrated", fileName="sle")

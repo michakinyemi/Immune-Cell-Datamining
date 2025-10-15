@@ -38,20 +38,21 @@ All pre-processing steps are fully automated, with hands-on analysis steps being
 
     -   TODO: Better support image file generation for results
 
-## Function Documentation
+## 
 
 ------------------------------------------------------------------------
 
 (TODO) Usage instructions for all custom functions created for the pipeline:
 
-| Function               | Usage |
-|------------------------|-------|
-| `generateSampleList()` |       |
-| `filterSample()`       |       |
-| `runDimReduction()`    |       |
-| `annotateCellTypes()`  |       |
-| `mergeData()`          |       |
-| `integrateData()`      |       |
+### Additional Notes
+
+-   The "Immune-Cell-Datamining" folder should always be your current working directory (cwd).
+
+-   
+
+### Advice
+
+-   When in doubt, use `help(foo)` to get quick documentation on a function
 
 # Pipeline Planning
 

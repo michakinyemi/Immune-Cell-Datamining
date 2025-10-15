@@ -1,0 +1,725 @@
+# Data Visualization Cheatsheet
+
+## General Preprocessing
+
+------------------------------------------------------------------------
+
+### Adjusting Metadata
+
+```{r}
+
+# Remove trailing numbers from barcodes
+new_metadata$barcodes <- gsub('.{2}$', '', rownames(new_metadata))
+
+new_metadata <- new_metadata[!duplicated(new_metadata$barcodes), ]
+
+samples@meta.data$orig.barcodes <- rownames(samples@meta.data)
+
+
+# Increase/decrease barcode numbering
+increase_final_digit <- function(x) {
+  hyphen_pos <- regexpr("-[^-]*$", x)
+  prefix <- substr(x, 1, hyphen_pos)
+  digit <- as.numeric(substring(x, hyphen_pos + 1)) + 1 # <-
+  
+  new_string <- paste0(prefix, digit)
+  
+  return(new_string)
+}
+
+split_gvhdmeta <- split(gvhdmeta, gvhdmeta$experiment)
+
+new_rownames <- sapply(rownames(split_gvhdmeta[[3]]), increase_final_digit)
+
+rownames(split_gvhdmeta[[3]]) <- new_rownames
+
+merged_gvhdmeta <- do.call(rbind, split_gvhdmeta)
+
+```
+
+### Merging Metadata
+
+```{r}
+# Split & remerge metadata tables
+split_gvhdmeta <- split(gvhdmeta, gvhdmeta$experiment)
+
+merged_metadata <- merge(samples@meta.data, gvhdmeta, by.x="barcodes", by.y= "barcode", all.x=TRUE)
+
+rownames(merged_metadata) <- merged_metadata$orig.barcode
+samples@meta.data <- merged_metadata
+
+# TODO: try using 'rbind' function
+samples <- AddMetaData(samples, gvhdmeta_correct)
+samples <- subset(samples, subset = experiment != 'NA')
+
+# Notes about merging metadata (because the docs suck):
+# - Function will automatically fill
+#   NA values for unmatched cells
+# - can't have a column named "barcode"?
+
+# Remove entries with NA values
+
+clean_names <- rownames(samples@meta.data %>% filter(!is.na(experiment)))
+```
+
+```{r}
+
+samples$GvHD_group <- gsub("control", "Control", samples$GvHD_group)
+
+
+# View All Cluster (Idents) Names
+levels(samples)
+
+samples <- RenameIdents(samples, '3'="Neutrophils")
+
+samples$cell.type <- samples@active.ident
+```
+
+```{r}
+
+# Double check duplicate barcodes
+View(samples@meta.data)
+
+length(merged_metadata$barcode)
+length(unique(merged_metadata$barcode))
+
+unique_barcodes_list <- unique(merged_metadata$barcode)
+
+
+# Manually Update Sample Condition Names
+print(unique(samples@meta.data$orig.sample))
+
+samples@meta.data$orig.sample[samples@meta.data$orig.sample == "GSM6008408_PREP0128_ESint12162A_G9v1_SCb_BWH4_48h"] <- "48h"
+
+# Delete Metadata Column
+samples@meta.data$orig.ident <- NULL
+
+# Duplicate Metadata Column
+samples@meta.data$cell_type <- samples@meta.data$seurat_clusters
+
+
+```
+
+### Creating Data Subsets
+
+```{r}
+levels(samples)
+Idents(samples) <- samples$celltype
+
+# Subset Cells
+samples_tcell <- subset(samples, ident=c("CD4 Treg", "CD4 Th1", "CD4 T cm", "CD8 TRM", "CD4 memory", "CD4 Th17", "CD8 act."))
+
+samples_cd4 <- subset(samples, ident=c("CD4 Treg", "CD4 Th1", "CD4 T cm", "CD4 memory", "CD4 Th17"))
+
+samples_mono <- subset(samples, ident=c("Monocytes", "Macrophages", "DCs"))
+
+samples_bcell <- subset(samples, ident=c("IgA Plasma", "IgG Plasma"))
+
+
+samples_tcell <- run_dim_reduction(samples_tcell)
+
+AverageExpression(samples, features=c("TIGIT", "CD8A", "CD8B", "CD4"), group.by=c("celltype", "GvHD_group"))
+```
+
+### Regressing Out Unwanted Variation
+
+```{r}
+
+# Ex: cell cycle, HLA, mitochondrial gene
+
+samples_cc <- CellCycleScoring(samples_cd4, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+samples_cc <- ScaleData(samples_cc, vars.to.regress = c("S.Score", "G2M.Score"))
+samples_cc <- NormalizeData(samples_cc)
+
+samples_cd4 <- run_dim_reduction(samples_cc, numPCs = 10)
+
+
+```
+
+## Dimension Reduction Analysis
+
+------------------------------------------------------------------------
+
+### Check Principal Components
+
+```{r}
+
+# --== Analyze Principal Components ==--
+
+names(samples@reductions)
+
+print(samples[["pca"]], dims = 1:2, nfeatures = 30)
+
+
+
+# Determine "dimensionality" by visualizing amount of change 
+ElbowPlot(samples, reduction = "pca")
+
+VizDimLoadings(samples, dims = 1:2, reduction = "orig.pca")
+izDimLoadings(samples, dims = 2:3, reduction = "orig.pca", balanced=TRUE)
+
+DimPlot(object=samples, reduction="orig.pca", label = TRUE, pt.size = 0.5)
+
+```
+
+### Batch Effect Analysis
+
+```{r}
+
+# Check For Batch Effect
+fig <- DimPlot(samples, reduction="integrated.cca", group.by="orig.sample")
+ggsave("results/[DimPlot] Original UMAP.png", figure, width=6, height=4, dpi=300)
+
+fig1 <- DimPlot(samples, reduction="orig.umap", group.by="orig.sample")
+fig2 <- DimPlot(samples, reduction="umap", group.by="orig.sample")
+grid.arrange(fig1, fig2, ncol=2)
+
+DimPlot(object=samples, reduction="umap", label = TRUE, pt.size = 0.5, group.by = 'seurat_clusters')
+
+rm(fig, fig1, fig2)
+
+```
+
+### Dimension Reduction Plots
+
+```{r}
+
+# Generate Dimension Reduction Plot
+figure <- DimPlot(object=samples, reduction="orig.umap", label = TRUE, pt.size = 0.5, group.by="seurat_clusters")
+ggsave("results/[DimPlot] Original UMAP.png", figure, width=6, height=4, dpi=300)
+
+
+# Group By Cell Properties
+DimPlot(object=samples, reduction="orig.umap", label = TRUE, pt.size = 0.5, group.by="celltype")
+DimPlot(object=samples, reduction="umap.exhaust", label = TRUE, pt.size = 0.5, group.by="GvHD_group")
+
+DimPlot(object=samples_tcell, reduction="tsne.exhaust", label = TRUE, pt.size = 0.5)
+
+
+# Feature Plots
+FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = "CD20")
+
+FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = MARKERS$`T reg`)
+
+```
+
+## General Analysis
+
+------------------------------------------------------------------------
+
+### Find Differential Expression (Markers)
+
+```{r}
+
+Features(samples)[Features(samples) %like% "CD8"]
+
+# Identify Cluster Markers
+
+de_markers <- FindAllMarkers(samples, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+
+de_markers_neg <- FindMarkers(treg_gvhd_bm, only.pos = FALSE, 1)
+
+# Print top n markers for each cluster
+topMarkers <- de_markers %>% group_by(cluster) %>% top_n(n = 5, wt = avg_log2FC)
+View(topMarkers)
+
+write.csv(topMarkers, "results/topMarkers.csv", row.names = FALSE)
+
+# Remember that clusters /= PCs
+# Markers are identified PER CLUSTER
+
+Idents(samples)
+
+de_genes <- rownames(de_markers)
+de_expr <- GetAssayData(samples1a, slot = "data")[de_genes, ]
+
+```
+
+### Volcano Plots of Markers
+
+```{r}
+
+library(ggplot2)
+
+# Improved plot
+ggplot(de_markers_neg, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+  geom_point(aes(color = ifelse(p_val_adj < 5e-250, "Significant", "Not Significant")), 
+             alpha = 0.8, size = 2) +  # Increased point size for better visibility
+  scale_color_manual(values = c("Significant" = "red", "Not Significant" = "black")) +
+  labs(title = "Volcano Plot",
+       x = "Log2(Fold Change)",
+       y = "-log10(Adjusted P-value)",
+       color = "Significance") +  # Added color legend title
+  theme_classic() +
+  theme(
+    plot.title = element_text(hjust = 0.5),  # Centered title
+    legend.position = "top"  # Positioned legend at the top
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +  # Added vertical line at x = 0
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue")
+
+
+```
+
+### Miscellaneous Figures
+
+```{r}
+
+# Violin Plots 
+VlnPlot(samples, features = MARKERS$Exhaust, log = TRUE, pt.size=0, group.by="celltype")
+VlnPlot(samples, features = MARKERS$Glycolysis, log = TRUE, pt.size=0, group.by="GvHD_group")
+
+VlnPlot(samples, features = c("FOXP3"), log = TRUE, pt.size=0, group.by="GvHD_group")
+
+
+
+# Ridge Plots
+RidgePlot(samples_treg, features = c("LDHA", "CD4A"), ncol = 2, group.by = "GvHD_group")
+
+
+```
+
+### Cell Type Proportions Plot
+
+```{r}
+
+# Create a data frame with cell type and sample type information
+samples_noctrl <- subset(samples, idents = c("control_1", "control_2", "control_3"), invert = TRUE)
+samples_noctrl_cd4 <- subset(samples_noctrl, idents = c("CD4 memory", "CD4 Th17", "CD4 Treg", "CD4 Th1", "CD4 T cm" ))
+
+cell_metadata <- samples_noctrl_cd4@meta.data[, c("celltype", "samplename")]
+
+# Calculate Individual Proportions
+proportions <- cell_metadata %>%
+  group_by(samplename, celltype) %>%
+  summarise(count = n()) %>%
+  mutate(proportion = count / sum(count)) %>%
+  ungroup()
+
+# Calculate average proportions
+average_proportions <- proportions %>%
+  group_by(celltype) %>%
+  summarise(average_proportion = mean(proportion)) %>%
+  mutate(samplename = "Average")
+
+# Normalize average proportions
+total_average_proportion <- sum(average_proportions$average_proportion)
+average_proportions <- average_proportions %>%
+  mutate(proportion = average_proportion / total_average_proportion) %>%
+  dplyr::select(-average_proportion)
+
+# Combine proportions and normalized average proportions
+combined_proportions <- bind_rows(proportions, average_proportions)
+
+# Add a dummy column for spacing
+combined_proportions <- combined_proportions %>%
+  mutate(samplename = factor(samplename, levels = c(unique(proportions$samplename), "", "Average")))
+
+# Plot proportions with a wider average bar and spacing
+ggplot() +
+  # Plot individual sample proportions
+  geom_bar(data = combined_proportions %>% filter(samplename != "Average" & samplename != ""),
+           aes(x = samplename, y = proportion, fill = celltype),
+           stat = "identity") +
+  # Plot average proportions with a wider bar
+  geom_bar(data = combined_proportions %>% filter(samplename == "Average"),
+           aes(x = samplename, y = proportion, fill = celltype),
+           stat = "identity", width = 2) +  # Adjust the width for the average bar
+  theme_minimal() +
+  labs(title = "Cell Type Proportions (CD4 Subset)",
+       x = "Sample Type",
+       y = "Proportion") +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+## Gene Module Scoring
+
+------------------------------------------------------------------------
+
+### Retreive Gene Ontology (GO) Sets
+
+```{r}
+
+library(org.Hs.eg.db)
+library(org.Mm.eg.db)
+
+# Oxidation Phosphorylation (GO:0006119)
+# Mitophagy (GO:0000422)
+# Autophagy (GO:0006914)
+# Fatty Acid Oxidation (GO:0019395)
+# Cholesterol Metabolic Process (GO:0008203)
+# TCA Cycle (GO:0006099)
+
+# Hypoxia
+# Senescence
+
+# Glycolytic Process (GO:0006096)
+glycolysis_genes <- AnnotationDbi::select(org.Hs.eg.db, 
+                                          keys = "GO:0006096", 
+                                          columns = c("SYMBOL"), 
+                                          keytype = "GOALL")
+
+glycolysis_genes <- unique(glycolysis_genes$SYMBOL)
+
+# Gluconeogenesis (GO:0006094)
+gluconeogenesis_genes <- AnnotationDbi::select(org.Hs.eg.db, 
+                                               keys = "GO:0006094", 
+                                               columns = c("SYMBOL"), 
+                                               keytype = "GOALL")
+
+gluconeogenesis_genes <- unique(gluconeogenesis_genes$SYMBOL)
+```
+
+### Pearson Correlation Analysis
+
+```{r}
+
+Features(samples)[Features(samples) %like% "HIF"]
+
+samples@meta.data$Gluconeogenesis1 <- NULL
+Features(samples)
+
+module1 <- 'Exhaustion'
+module2 <- 'Senescence'
+
+# Add Gene Module Scores (For all marker groups)
+module_list <- names(MARKERS[8:17])
+for (mod in module_list) {
+  samples <- AddModuleScore(samples, MARKERS[mod], name= mod)
+}
+
+# (Manually)
+samples <- AddModuleScore(samples, list(glycolysis_genes), name= 'GlycolysisExternal')
+
+# Find Average Expression For Specific Gene
+avg_expr <- AverageExpression(samples, group.by="samplename", features="GPR84")
+
+# Split and find average per biopsy
+metadata_split <- split(samples@meta.data, samples$samplename)
+
+corr_table <- data.frame(matrix(ncol=2,nrow=0))
+for (i in 1:length(names(metadata_split))) {
+  name1 <- paste(module1,"1",sep="")
+  mean1 <- as.numeric(mean(metadata_split[[i]][[name1]]))
+  name2 <- paste(module2,"1",sep="")
+  #mean2 <- as.numeric()
+  mean2 <- as.numeric(mean(metadata_split[[i]][[name2]]))
+  
+  corr_table <- rbind(corr_table, c(mean1, mean2))
+  rm(mean1, name1, mean2, name2)
+}
+
+colnames(corr_table) <- c(module1, module2)
+
+correlation <- cor(as.numeric(corr_table[[module1]]), as.numeric(corr_table[[module2]]), method='pearson')
+
+fig3 <- ggscatter(corr_table, x = module1, y = module2, 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = module1, ylab = module2)
+
+
+rm(metadata_split, corr_table)
+ 
+```
+
+### Weighted Gene Co-Expression Network Analysis (WGCNA)
+
+```{r}
+
+
+
+samples <- NormalizeData(samples)
+
+samples <- FindVariableFeatures(samples_cd4, selection.method = "vst", nfeatures = 1000)
+
+
+
+# Extract expression matrix for highly variable genes
+data <- GetAssayData(samples, assay = "RNA", slot = "data")
+
+
+# Convert data to numeric matrix
+data <- t(as.matrix(data))
+
+# Choose soft thresholding power
+softPower <- 24
+
+# Perform WGCNA analysis
+network <- blockwiseModules(data, power = softPower, TOMType = "unsigned", minModuleSize = 30, reassignThreshold = 0, mergeCutHeight = 0.25, numericLabels = TRUE, pamRespectsDendro = FALSE,saveTOMs = TRUE, verbose = 3)
+
+# Module colors (labels)
+module_colors <- network$colors
+
+# Module eigengenes (MEs)
+module_eigengenes <- network$MEs
+
+# Print out the module colors and eigengenes
+print(module_colors)
+print(module_eigengenes)
+
+
+# Convert module colors to a vector
+module_colors <- labels2colors(network$colors)
+
+# Plot the dendrogram and module colors
+plotDendroAndColors(network$dendrograms[[1]], colors=module_colors, "Module colors", dendroLabels = FALSE, hang = 0.03)
+
+g <- graph(n = length(network), edges = length(network$colors), directed = FALSE)
+
+# Set node attributes
+V(g)$name <- paste("Module", 1:length(network$colors))
+V(g)$color <- network$colors
+
+plot(g)
+
+graph_network <- graph_from_adjacency_matrix(network)
+
+nodes <- data.frame(
+  Gene = colnames(data),
+  Module = module_colors
+)
+
+# Save to CSV
+write.csv(nodes, file = "nodes.csv", row.names = FALSE)
+
+# Calculate TOM matrix
+TOM <- TOMsimilarityFromExpr(data, power = 6)
+
+# Get gene names
+gene_names <- rownames(data)
+
+# Create a list of edges above a threshold
+threshold <- 0.1
+edges <- which(TOM > threshold, arr.ind = TRUE)
+
+# Create a data frame for edges
+edges_df <- data.frame(
+  Source = gene_names[edges[, 1]],
+  Target = gene_names[edges[, 2]],
+  Weight = TOM[edges]
+)
+
+# Remove self-loops
+edges_df <- edges_df[edges_df$Source != edges_df$Target, ]
+
+# Save to CSV
+write.csv(edges_df, file = "edges.csv", row.names = FALSE)
+
+
+
+```
+
+### Network Visualization
+
+```{r}
+library('igraph')
+library('network')
+library('networkD3')
+library('intergraph')
+m<-adjacency
+
+source=c()
+target=c()
+corr<-c()
+g1<-rownames(data_subset)[1:dim(m)[1]]
+g2<-g1
+
+for(gene in g1){
+  for(gen in g2){
+    if(m[gene,gen]<0.9999 & m[gene,gen]>0.3){
+      source<-c(source,gene)
+      target<-c(target,gen)
+      corr<-c(corr,m[gene,gen])
+    }
+  }
+}
+NetworkData <- data.frame(source, target)
+
+simpleNetwork(NetworkData,zoom = T)
+```
+
+### Gene Set Enrichment Analysis (GSEA)
+
+```{r}
+
+# TODO
+
+
+
+
+```
+
+## Primary Heatmap Setup
+
+------------------------------------------------------------------------
+
+### Generate Average Expression Per Cluster
+
+```{r}
+
+
+Features(samples)[Features(samples) %like% "ALDH1"]
+
+gene_list <- c("FOXK2", "PCK2", "GPR84", "LDHA", "FOXK1", "LAG-3", "TIGIT", "CTLA4", MARKERS$Glycolysis, MARKERS$`Oxidative Phosphorylation`)
+
+cell_list <- c("CD4 Treg", "CD8 act.", "CD8 TRM", "CD4 Th17")
+samples_subset <- subset(samples, idents=cell_list)
+
+
+# Compute the average expression for the specified cell types
+sparse_mat <- AverageExpression(samples_subset, features = gene_list,
+                                 group.by = c("celltype", "GvHD_group"))
+# Notes:
+# Below average doesn't mean 0 expression
+
+mat <- t(scale(t(as.matrix(sparse_mat$RNA))))
+mat[is.na(mat)] <- 0
+
+# Set up annotations
+unique_combinations <- colnames(mat)
+
+anno_row <- data.frame(
+  Pathway = factor(rep(c("Glycolysis", "T Cell Markers"), c(4, 2)))
+)
+
+anno_colors <- list(
+  State = c("white", "firebrick"),
+  CellType = c("white", "firebrick"),
+  Pathway = c("Glycolysis" = "#7570B3", "T Cell Markers" = "#E7298A")
+)
+
+split_groups <- strsplit(unique_combinations, "_")
+
+anno_col <- data.frame(
+  State = sapply(split_groups, "[[", 2),
+  CellType = sapply(split_groups, "[[", 1)
+)
+
+rownames(anno_col) <- colnames(mat)
+
+fig <- pheatmap(
+  mat,
+  annotation_col = anno_col,
+  
+  col = colorRampPalette(c("navy", "white", "firebrick3"))(50),
+  
+  cluster_cols = FALSE,
+  angle_col = "45",
+  gaps_col = seq(3, by = 3, length.out = length(cell_list))
+)
+
+fig
+```
+
+### Silly Little Heatmap
+
+```{r}
+# basic heatmap (very useful and informative visualization :D)
+DimHeatmap(samples, dims = 1:2, cells = 500, balanced = TRUE)
+
+```
+
+## Cell Trajectory & Pseudotime
+
+------------------------------------------------------------------------
+
+```{r}
+
+tol_high_contrast_palette <- c("#DDAA33", "#BB5566", "#004488")
+tol_vibrant_palette <- c("#0077BB", "#33BBEE", "#009988",
+                         "#EE7733", "#CC3311", "#EE3377",
+                         "#BBBBBB")
+tol_muted_palette <- c("#332288", "#88CCEE", "#44AA99",
+                       "#117733", "#999933", "#DDCC77",
+                       "#CC6677", "#882255", "#AA4499")
+
+
+cds <- SeuratWrappers::as.cell_data_set(samples_cd4, default.reduction = 'UMAP')
+cds <- cluster_cells(cds, resolution=0.0009)
+
+plot_cells(cds, color_cells_by = "cluster", show_trajectory_graph = FALSE)
+
+# Draw Trajectories
+cds <- learn_graph(cds, use_partition=TRUE, close_loop=FALSE)
+
+plot_cells(cds, color_cells_by = "cluster", label_groups_by_cluster=FALSE, label_leaves=FALSE, label_branch_points=FALSE)
+
+# Order Cells in Pseudotime
+cds <- order_cells(cds, root_cells = colnames(cds[,clusters(cds) == 6]))
+
+plot_cells(cds,
+           color_cells_by = "pseudotime",
+           group_cells_by = "cluster",
+           label_cell_groups = FALSE,
+           label_groups_by_cluster=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE,
+           label_roots = FALSE,
+           trajectory_graph_color = "grey60")
+```
+
+## Creating Subset Datasets
+
+------------------------------------------------------------------------
+
+### Investigating Exhausted Tc Populations
+
+```{r}
+
+
+# --== Subset By Cluster ==--
+tSubset <- subset(samples, idents = c("T Cells", "CD4 T Cells", "CD8 T Cells"))
+
+length(Cells(tSubset))
+
+
+# --== Subset By Genes ==--
+length(WhichCells(tSubset, expression = TIGIT > 1))
+
+
+
+exhaustSubset <- subset(tSubset, cells = WhichCells(tSubset, expression = TIGIT > 1))
+healthySubset <- subset(tSubset, cells = WhichCells(tSubset, expression = TIGIT < 1))
+
+#validate
+length(Cells(healthySubset))
+length(WhichCells(healthySubset, expression = TIGIT > 1))
+
+
+# violin plot of expression
+tSubsetMerge <- merge(exhaustSubset, healthySubset)
+
+tSubsetMerge$dataset <- c(
+  rep("Exhausted", ncol(seurat_obj1@assays$RNA)), 
+  rep("Healthy", ncol(seurat_obj2@assays$RNA)))
+
+
+VlnPlot(exhaustSubset, features = genesOfInterest, log = TRUE, 
+        pt.size = 0.1)
+VlnPlot(healthySubset, features = genesOfInterest, log = TRUE, 
+        pt.size = 0.1)
+
+
+# Check subset size
+print(nrow(cells_with_gene_expression))
+
+
+
+exhaustSubset <- subset(seurat_obj, subset = RNA, gene_symbol = gene_of_interest)
+```
+
+**Wishlist Functions:**
+
+-   `print_top_markers(seuratObject, deMarkers, idents=NULL)`
+
+    -   
+
+-   Support parameter for slight customization of reduction names in `run_dim_reduction` (Ex: `pca.[name]`, `umap.[name]`, `orig.pca.[name]`)
+
+-   Also regress out HLA genes along with the cell cycle ones
+
+aaa

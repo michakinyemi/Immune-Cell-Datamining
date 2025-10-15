@@ -72,14 +72,14 @@ source(file.path(CONFIG$srcDir, "util.R"))
 samples_sle$condition <- NA
 
 # Classify condition using identifier substring (i.e. `_SLE_` or `_HD_`)
-names <- unique(samples_sle$orig.ident)
+names <- unique(samples_sle$orig.sample)
 
 disease <- grep("SLE", names, value = TRUE)
-samples_sle$condition[samples_sle$orig.ident %in% disease] <- "SLE"
+samples_sle$condition[samples_sle$orig.sample %in% disease] <- "Disease"
 
 
 healthy <- grep("HD", names, value = TRUE)
-samples_sle$condition[samples_sle$orig.ident %in% healthy] <- "Healthy"
+samples_sle$condition[samples_sle$orig.sample %in% healthy] <- "Healthy"
 
 
 # samples$condition <- ifelse(samples$sample %in% c("30_HUMAN_GVHD_A6_G1", "31_HUMAN_GVHD_A7_G1", "32_HUMAN_GVHD_A8_G1"), "healthy", "disease")
@@ -218,6 +218,34 @@ visualize_batch_effect(Epi_samples)
 
 ```
 
+### Dimension Reduction Plots
+
+```{r}
+STYLE <- list(
+  "DimPlot.label" = TRUE,
+  "DimPlot.label.size" = 5,
+  "DimPlot.pt.size" = NULL,
+)
+
+
+# Group By Cell Type
+DimPlot(samples_mouse, reduction="umap.integrated", label = TRUE, group.by="clusters.integrated", raster=FALSE)
+
+DimPlot(samples_mouse, reduction="umap.integrated", label = TRUE, group.by="SingleR_main.sct", raster=FALSE) + NoLegend()
+
+DimPlot(samples_mouse, reduction="umap.integrated", label = TRUE, label.size=6, group.by="SingleR_fine.sct", raster=FALSE) + NoLegend()
+
+groups <- c("SingleR_main", "SingleR_fine", "clusters.integrated")
+
+for (name in groups) {
+  DimPlot(samples_sle, reduction="umap.sct", label = TRUE, group.by=name, raster=FALSE) + NoLegend()
+}
+
+DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by="integrated.cca.clusters", raster=FALSE) + NoLegend()
+
+DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by="cell_type", raster=FALSE) + NoLegend()
+```
+
 ## Marker Identification
 
 ------------------------------------------------------------------------
@@ -269,9 +297,9 @@ de_expr <- GetAssayData(samples1a, slot = "data")[de_genes, ]
 ```{r "Annotate Cell Types (Using Clusters)"}
 
 # Cell Type
-samples_sle$cell_type <- samples_sle@active.ident
+samples_sle$cell_type <- "Other" # samples_sle@active.ident
 
-samples_sle$cell_type[samples_sle@active.ident %in% c(7, 10, 18, 23)] <- "Treg"
+samples_sle$cell_type[samples_sle@active.ident %in% c(17)] <- "Treg"
 
 treg_cluster <- subset(samples_mouse, subset = SingleR_main == "T cells")
 
@@ -347,6 +375,38 @@ table(treg_subset$orig.ident)
 ## Analyzing Expression Levels
 
 ------------------------------------------------------------------------
+
+```{r DESeq2 Workflow}
+
+deseq2_results <- runDESeq2(treg_sle, includeCellType = FALSE)
+
+res <- as.data.frame(deseq2_results$results)
+res <- res[!is.na(res$log2FoldChange), ]
+res$avg_log2FC <- res$log2FoldChange
+res$gene <- rownames(res)
+
+gsea_results_msigdbr <- runGSEA(res, database = "METABOLIC", species = "human")
+
+```
+
+```{r}
+type <- "Metabolic"
+
+# For All Other Pathways
+ridgeplot(gsea_results_msigdbr) +
+  ggtitle(paste(type, "GSEA Ridge Plot"))
+dotplot(gsea_results_msigdbr, showCategory = 20) +
+  ggtitle(paste(type, "GSEA Dot Plot"))
+enrichplot::gseaplot2(gsea_results_msigdbr) +
+  ggtitle(paste(type, "GSEA Enrichment Plot"))
+
+
+# Only for METABOLIC
+print(gsea_results_msigdbr$bar_plot)
+print(gsea_results_msigdbr$dot_plot)
+print(gsea_results_msigdbr$enrichment_plot)
+
+```
 
 ```{r}
 
@@ -657,8 +717,6 @@ rm(metadata_split, corr_table)
 
 ```{r}
 
-
-
 samples <- NormalizeData(samples)
 
 samples <- FindVariableFeatures(samples_cd4, selection.method = "vst", nfeatures = 1000)
@@ -765,17 +823,6 @@ for(gene in g1){
 NetworkData <- data.frame(source, target)
 
 simpleNetwork(NetworkData,zoom = T)
-```
-
-### Gene Set Enrichment Analysis (GSEA)
-
-```{r}
-
-# TODO
-
-
-
-
 ```
 
 ## Pseudotime Analysis

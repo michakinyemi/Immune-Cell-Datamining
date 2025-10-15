@@ -1,4 +1,3 @@
-
 #' --== Load Dataset ==--
 #' Parse the provided sample directory and generate
 #' a Seurat Object for each identified sample.
@@ -125,7 +124,7 @@ loadDataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector(),
       
       cell_meta <- read.csv(paste0(sampleDir, "/cell_metadata.csv"), row.names = 1)
       
-      sampleObj <- CreateSeuratObject(mat, meta.data = cell_meta)
+      sampleObj <- CreateSeuratObject(mat, meta.data = cell_meta, project=sampleName)
       
       cat("Filtering Sample:", sampleName, "\n")
       sampleObj <- filterSample(sampleObj)
@@ -160,36 +159,4 @@ loadDataset <- function(SAMPLE_DATA, excludeList=vector(), includeList=vector(),
   }
   
 }
-
-
-#' --== Filter Samples ==--
-#' 
-#' 
-filterSample <- function(seuratObject) {
-  seuratObject$percent.mt <- PercentageFeatureSet(seuratObject,
-                                                  pattern = "^MT-")
-  
-  origCount = length(Cells(seuratObject))
-  
-  seuratObject <- subset(
-    seuratObject,
-    subset = nFeature_RNA > CONFIG$minFeatRNA &
-             percent.mt < CONFIG$mtExprLimit
-  )
-  
-  newCount = length(Cells(seuratObject))
-  filtCount = origCount - newCount
-  
-  cat("- Original Cell Count:", origCount, "\n")
-  cat("- N Cells Removed:", filtCount, "\n")
-  cat("- New Cell Count:", newCount, "\n")
-  
-  return(seuratObject)
-}
-
-
-
  
-
-
-

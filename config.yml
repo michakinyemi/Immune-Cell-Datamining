@@ -12,5 +12,5 @@ minFeatRNA: 200
 mtExprLimit: 20
 
 # Dimension Reduction
-numPCs: 30
+numPCs: 15
 clusterResolution: 1

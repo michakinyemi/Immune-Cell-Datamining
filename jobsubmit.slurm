@@ -1,13 +1,12 @@
 #!/bin/bash
-# #SBATCH --account=hnguyen
-# #SBATCH --mail-user=mi542876@ucf.edu
-# #SBATCH --mail-type=FAIL
-# #SBATCH --mail-type=END
+#SBATCH --mail-user=mi542876@ucf.edu
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-type=END
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=128G
 #SBATCH --time=10:00:00
-# #SBATCH --error=myjobresults-%J.err
 #SBATCH --output=myjobresults-%J.out
 #SBATCH --job-name=scRNA-Seq
 

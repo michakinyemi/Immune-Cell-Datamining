@@ -1,39 +1,7 @@
 
 
 
-#' Sum of vector elements
-#'
-#' `sum` returns the sum of all the values present in its arguments.
-#'
-#' This is a generic function: methods can be defined for it directly
-#' or via the [Summary()] group generic. For this to work properly,
-#' the arguments `...` should be unnamed, and dispatch is on the
-#' first argument.
-#' --== Generate Complete Report ==--
-generateReport <- function(seuratObject, saveFolder=NULL) {
 
-  .validateSeuratObject(seuratObject)
-
-
-  if (is.null(saveFolder)) {
-    saveFolder = file.path(CONFIG$resultsHome, CONFIG$timestamp)
-  }
-
-
-  # Folder 1: Preprocessing  
-  visualize_batch_effect(seuratObject, saveFolder=saveFolder)
-  
-  visualize_umap_clusters(seuratObject, saveFolder=saveFolder)
-  
-
-  # Folder 2: Differential Gene Expression
-
-
-
-
-  # Folder 3: Gene Network Analysis
-
-}
 
 
 visualizeVolcanoPlot <- function(markers) {
@@ -59,44 +27,7 @@ visualizeVolcanoPlot <- function(markers) {
 
 
 
-#' --== Visualize Batch Effect ==--
-#' 
-#' 
-visualizeBatchEffect <- function(seuratObject, saveFolder="results/") {
-  
-  fig1a <- DimPlot(seuratObject, reduction="orig.pca.umap", 
-                   group.by="orig.ident") + ggtitle('1. Initial Dimension Reduction')
-  fig1b <- DimPlot(seuratObject, reduction="orig.pca.umap",
-                   group.by="orig.ident", split.by="orig.ident")
-  
-  fig2a <- DimPlot(seuratObject, reduction="integrated.cca.umap",
-                   group.by="orig.ident") + ggtitle('2. Post-Batch Effect Correction')
-  fig2b <- DimPlot(seuratObject, reduction="integrated.cca.umap",
-                   group.by="orig.ident", split.by="orig.ident")
-  
-  if (!is.null(seuratObject@reductions$regressed.umap)) {
-    
-    fig3a <- DimPlot(seuratObject, reduction="regressed.umap",
-                     group.by="orig.ident") + ggtitle('3. Post-Cell Cycle Regression')
-    fig3b <- DimPlot(seuratObject, reduction="regressed.umap",
-                     group.by="orig.ident", split.by="orig.ident")
-    
-    fig <- (fig1a + fig1b) / (fig2a + fig2b) / (fig3a + fig3b)
-    
-    ggsave(paste0(saveFolder, "Batch Effect Analysis.png"), fig, create.dir=TRUE,
-           width=15, height=9, dpi=300)
-    
-  } else {
-    
-    fig <- (fig1a + fig1b) / (fig2a + fig2b)
-    
-    ggsave(paste0(saveFolder, "Batch Effect Analysis.png"), fig, create.dir=TRUE,
-           width=15, height=6, dpi=300)
-  }
-  
-  
-  return(fig)
-}
+
 
 
 
@@ -269,10 +200,7 @@ visualizeCellTypeProportions <- function(seuratObject, metaCol="seurat_clusters"
 #' Displays a heatmap comparing expression levels across cell types and conditions
 #' 
 visualizePrimaryHeatmap <- function(seuratObject, targets, cellTypeCol = NULL, conditionCol = "condition") {
-  require(Seurat)
-  require(dplyr)
-  require(pheatmap)
-  require(RColorBrewer)
+
   
   meta <- seuratObject@meta.data
   if (!conditionCol %in% colnames(meta)) stop("conditionCol not found in metadata.")

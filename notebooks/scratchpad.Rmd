@@ -1,0 +1,91 @@
+```{r}
+
+
+cat("=== Investigating RunPCA Error After merge() ===\n\n")
+
+# 1. Basic object info
+cat("1. OBJECT DIMENSIONS:\n")
+cat(sprintf("   Total cells: %d\n", ncol(samples_sle_mid)))
+cat(sprintf("   Total features: %d\n", nrow(samples_sle_mid)))
+cat(sprintf("   Assays: %s\n", paste(names(samples_sle_mid@assays), collapse=", ")))
+cat(sprintf("   Default assay: %s\n\n", DefaultAssay(samples_sle_mid)))
+
+# 2. SCT assay slots - THIS IS THE KEY CHECK
+cat("2. SCT ASSAY SLOTS:\n")
+cat(sprintf("   counts dims: %d x %d\n", 
+            nrow(samples_sle_mid@assays$SCT@counts), ncol(samples_sle_mid@assays$SCT@counts)))
+cat(sprintf("   data dims: %d x %d\n", 
+            nrow(samples_sle_mid@assays$SCT@data), ncol(samples_sle_mid@assays$SCT@data)))
+cat(sprintf("   scale.data dims: %d x %d  <-- CRITICAL!\n", 
+            nrow(samples_sle_mid@assays$SCT@scale.data), ncol(samples_sle_mid@assays$SCT@scale.data)))
+
+if (nrow(samples_sle_mid@assays$SCT@scale.data) == 0) {
+  cat("\n   *** PROBLEM FOUND: scale.data is EMPTY ***\n")
+  cat("   merge() does NOT preserve scale.data from SCTransform!\n\n")
+}
+
+# 3. Variable features
+cat("\n3. VARIABLE FEATURES:\n")
+var_feat <- VariableFeatures(samples_sle_mid, assay = "SCT")
+cat(sprintf("   Number of variable features: %d\n", length(var_feat)))
+if (length(var_feat) > 0) {
+  cat(sprintf("   First 5: %s\n", paste(head(var_feat, 5), collapse=", ")))
+} else {
+  cat("   *** PROBLEM: No variable features! ***\n")
+}
+
+# 4. Calculate what RunPCA is trying to do
+cat("\n4. WHAT RunPCA SEES:\n")
+n_features <- nrow(samples_sle_mid@assays$SCT@scale.data)
+n_cells <- ncol(samples_sle_mid@assays$SCT@scale.data)
+requested_pcs <- 30  # or whatever you're requesting
+
+cat(sprintf("   Features in scale.data: %d\n", n_features))
+cat(sprintf("   Cells in scale.data: %d\n", n_cells))
+cat(sprintf("   Requested PCs: %d\n", requested_pcs))
+cat(sprintf("   Max possible PCs: %d (min of %d-1, %d-1)\n", 
+            min(n_features, n_cells) - 1, n_features, n_cells))
+
+if (n_features == 0 || n_cells == 0) {
+  cat("\n   *** THIS IS WHY SVD FAILS: Empty matrix! ***\n")
+}
+
+# 5. Check SCT model parameters
+cat("\n5. SCT MODEL INFO:\n")
+if (length(samples_sle_mid@assays$SCT@SCTModel.list) > 0) {
+  cat(sprintf("   SCTModel.list length: %d\n", length(samples_sle_mid@assays$SCT@SCTModel.list)))
+  cat(sprintf("   Model names: %s\n", paste(names(samples_sle_mid@assays$SCT@SCTModel.list), collapse=", ")))
+} else {
+  cat("   No SCTModel.list found\n")
+}
+
+# 6. Solution
+cat("\n=== SOLUTION ===\n")
+cat("After merge(), you must re-prepare the data for PCA:\n\n")
+
+cat("# Option 1: If you want integration (RECOMMENDED for batch correction)\n")
+cat("features <- SelectIntegrationFeatures(object.list = list(sample1, sample2, ...))\n")
+cat("samples <- PrepSCTIntegration(object.list = list(sample1, sample2, ...), \n")
+cat("                               anchor.features = features)\n")
+cat("anchors <- FindIntegrationAnchors(object.list = samples, normalization.method = 'SCT',\n")
+cat("                                   anchor.features = features)\n")
+cat("integrated <- IntegrateData(anchorset = anchors, normalization.method = 'SCT')\n")
+cat("integrated <- RunPCA(integrated, npcs = 30)\n\n")
+
+cat("# Option 2: Simple merge WITHOUT integration (loses SCT benefits)\n")
+cat("samples_sle_mid <- merge(sample1, y = c(sample2, sample3, ...))\n")
+cat("VariableFeatures(samples_sle_mid) <- SelectIntegrationFeatures(\n")
+cat("    object.list = list(sample1, sample2, ...), nfeatures = 3000)\n")
+cat("samples_sle_mid <- ScaleData(samples_sle_mid, features = VariableFeatures(samples_sle_mid))\n")
+cat("samples_sle_mid <- RunPCA(samples_sle_mid, features = VariableFeatures(samples_sle_mid), npcs = 30)\n\n")
+
+cat("# Option 3: Re-run SCTransform on samples_sle_mid object (simplest)\n")
+cat("samples_sle_mid <- merge(sample1, y = c(sample2, sample3, ...))\n")
+cat("samples_sle_mid <- SCTransform(samples_sle_mid, verbose = FALSE)\n")
+cat("samples_sle_mid <- RunPCA(samples_sle_mid, npcs = 30)\n")
+
+
+
+
+
+```

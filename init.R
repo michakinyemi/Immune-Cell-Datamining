@@ -34,9 +34,6 @@
 library(yaml)
 CONFIG <- yaml::read_yaml("config.yml")
 
-source(paste(CONFIG$srcDir, "util.R", sep="/"))
+source(paste(CONFIG$srcDir, "env.R", sep="/"))
 .init_env(remote=FALSE)
-
-ref_human <- celldex::HumanPrimaryCellAtlasData()
-ref_mouse <- celldex::MouseRNAseqData()
 

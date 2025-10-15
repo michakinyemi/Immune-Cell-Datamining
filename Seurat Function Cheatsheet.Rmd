@@ -2,7 +2,7 @@
 
 I suggest getting familiar with the visualization functions shown in this notebook. While the pipeline can automate the bulk generation of more "summary-oriented" figures, knowing how to manually display certain aspects of the dataset will help a lot in both exploratory analysis and troubleshooting.
 
-### Violin Plots
+### Vln Plots
 
 ------------------------------------------------------------------------
 
@@ -24,11 +24,11 @@ RidgePlot(samples_sle, features = c("FOXK1", "CD4A"), ncol = 2, group.by = "cell
 # Feature Plots
 FeaturePlot(bm_samples, cols=c("grey", "red"), reduction = "regressed.tsne", features = "FOXK1", split.by = "orig.ident")
 
-FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = MARKERS$`T reg`)
+FeaturePlot(samples_mouse, assay="SCT", cols=c("grey", "red"), reduction = "umap.integrated", features = MARKERS$`T reg`)
 
 ```
 
-### Dimension Reduction Plots
+### DimPlot (Dimension Reduction Plots)
 
 ------------------------------------------------------------------------
 
@@ -42,18 +42,16 @@ STYLE <- list(
 
 
 # Group By Cell Type
-DimPlot(samples_human, reduction="orig.pca.umap", label = TRUE, pt.size = 0.5, group.by="orig.pca.clusters")
+DimPlot(samples_sle, reduction="umap.integrated", label = TRUE, group.by="clusters.integrated", split.by="orig.ident" raster=FALSE)
 
-DimPlot(samples_sle, reduction="orig.pca.umap", label = TRUE, group.by="orig.pca.clusters", raster=FALSE)
+DimPlot(samples_sle, reduction="umap.integrated", label = TRUE, group.by="SingleR_main", raster=FALSE) + NoLegend()
 
-DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by="SingleR_main", raster=FALSE) + NoLegend()
+DimPlot(samples_sle, reduction="umap.integrated", label = TRUE, label.size=6, group.by="SingleR_fine", raster=FALSE) + NoLegend()
 
-DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, label.size=8, group.by="SingleR_fine", raster=FALSE) + NoLegend()
-
-groups <- c("SingleR_main", "SingleR_fine", "integrated.cca.clusters")
+groups <- c("SingleR_main", "SingleR_fine", "clusters.integrated")
 
 for (name in groups) {
-  DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by=name, raster=FALSE) + NoLegend()
+  DimPlot(samples_sle, reduction="umap.sct", label = TRUE, group.by=name, raster=FALSE) + NoLegend()
 }
 
 DimPlot(samples_sle, reduction="integrated.cca.umap", label = TRUE, group.by="integrated.cca.clusters", raster=FALSE) + NoLegend()
@@ -69,4 +67,13 @@ DimPlot(samples, reduction="umap.exhaust", label = TRUE, pt.size = 0.5, group.by
 DimPlot(samples_tcell, reduction="tsne.exhaust", label = TRUE, pt.size = 0.5)
 
 FeaturePlot(samples, cols=c("grey", "red"), reduction = "umap", features = "FOXP3")
+```
+
+```{r}
+
+ridgeplot(gsea_results)
+
+dotplot(gsea_results, showCategory = 20)
+
+enrichplot::gseaplot2(gsea_results, geneSetID = 1)
 ```

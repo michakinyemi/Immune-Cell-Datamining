@@ -12,11 +12,12 @@ SAMPLE_DATA <- list(
 
 # --== Run Pipeline ==--
 
-samples_human <- load_dataset(SAMPLE_DATA)
+samples_human <- loadDataset(SAMPLE_DATA)
 
-samples_human <- perform_integration(samples_human)
+samples_human <- integrateSamples(samples_human, method="SCT")
 
-samples_human <- run_dim_reduction(samples_human, reduction.target="orig.pca")
+samples_human <- annotateSinglerLabels(samples_human, species="human")
 
-visualize_batch_effect(samples_human)
+saveRDS(samples_human, "data/samples_human.rds")
 
+findAllMarkers(samples_human, assay="SCT", group.by="clusters.integrated", fileName="human")
